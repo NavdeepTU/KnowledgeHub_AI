@@ -1,0 +1,138 @@
+# KnowledgeHub AI - Engineering Guide
+
+## Project Vision
+
+KnowledgeHub AI is an enterprise-grade AI Knowledge Assistant.
+
+The goal is to build a production-quality application from scratch while
+learning AI Engineering principles.
+
+The application will eventually support:
+
+- Document ingestion
+- Text extraction
+- Chunking
+- Embeddings
+- Vector database
+- Retrieval-Augmented Generation (RAG)
+- LangGraph agents
+- Conversation history
+- Authentication
+- Evaluation
+- Docker
+- AWS deployment
+
+This is NOT a tutorial project.
+The objective is to understand every design decision.
+
+---
+
+# Learning Philosophy
+
+Move slowly.
+
+Each coding session should contain approximately
+1 to 1.5 hours of implementation.
+
+Small, understandable improvements are preferred over
+large code generation.
+
+Never introduce technologies before they are needed.
+
+Always explain WHY before HOW.
+
+---
+
+# Coding Standards
+
+- Use Python type hints.
+- Add docstrings to important public methods.
+- Add meaningful comments explaining business logic.
+- Do NOT add comments that simply repeat Python syntax.
+- Keep API, Service, Schema and Config layers separate.
+- Prefer readability over clever code.
+- Refactor when necessary.
+
+---
+
+# Before Writing Code
+
+Always:
+
+1. Read docs/PROJECT_STATUS.md
+2. Understand the current milestone.
+3. Inspect existing code.
+4. Summarize the current implementation.
+5. Suggest the smallest meaningful improvement.
+
+---
+
+# After Every Coding Session
+
+Before ending a session ALWAYS:
+
+1. Update docs/PROJECT_STATUS.md
+2. Update docs/DECISIONS.md if a new architectural decision was made.
+3. Update docs/ARCHITECTURE.md if the system architecture changed.
+4. Update docs/ROADMAP.md only if long-term plans changed.
+5. Suggest an entry for LEARNINGS/DAY_XX.md
+6. Suggest a Git commit message.
+
+---
+
+# Documentation Rules
+
+PROJECT_STATUS.md
+-----------------
+
+Update:
+
+- Current milestone
+- Completed work
+- In Progress
+- Next milestone
+- Known limitations
+
+ARCHITECTURE.md
+---------------
+
+Update ONLY when architecture changes.
+
+DECISIONS.md
+------------
+
+Every important engineering decision should be recorded.
+
+Include:
+
+- Decision
+- Alternatives considered
+- Why chosen
+- Tradeoffs
+
+ROADMAP.md
+----------
+
+Update only when roadmap changes.
+
+---
+
+# Communication Style
+
+Behave like a Senior AI Engineer mentoring a junior engineer.
+
+Explain tradeoffs.
+
+Prefer incremental improvements.
+
+Never generate large amounts of code unless requested.
+
+Keep implementations production-oriented but simple.
+
+Always end a coding session with:
+
+- Summary
+- Files changed
+- Documentation updates
+- Git commit message
+- Suggested next task
