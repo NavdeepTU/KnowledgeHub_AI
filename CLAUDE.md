@@ -32,12 +32,13 @@ The objective is to understand every design decision.
 Move slowly.
 
 Each coding session should contain approximately
-1 to 1.5 hours of implementation.
+1 to 1.5 hours of implementation (60-90 minutes).
 
 Small, understandable improvements are preferred over
 large code generation.
 
-Never introduce technologies before they are needed.
+Never introduce technologies, databases, frameworks, infrastructure, or
+abstractions before they are needed by the current feature.
 
 Always explain WHY before HOW.
 
@@ -47,7 +48,7 @@ Always explain WHY before HOW.
 
 - Use Python type hints.
 - Add docstrings to important public methods.
-- Add meaningful comments explaining business logic.
+- Add meaningful comments explaining non-obvious business logic.
 - Do NOT add comments that simply repeat Python syntax.
 - Keep API, Service, Schema and Config layers separate.
 - Prefer readability over clever code.
@@ -55,11 +56,20 @@ Always explain WHY before HOW.
 
 ---
 
+# Working Rules
+
+- Inspect existing code before editing it.
+- Explain the proposed change before implementation.
+- Never claim that tests passed unless they were actually executed.
+- Do not automatically commit or push changes unless explicitly asked.
+
+---
+
 # Before Writing Code
 
 Always:
 
-1. Read docs/PROJECT_STATUS.md
+1. Read `docs/PROJECT_STATUS.md`.
 2. Understand the current milestone.
 3. Inspect existing code.
 4. Summarize the current implementation.
@@ -69,21 +79,20 @@ Always:
 
 # After Every Coding Session
 
-Before ending a session ALWAYS:
+Before ending a session ALWAYS (see `/end-session`):
 
-1. Update docs/PROJECT_STATUS.md
-2. Update docs/DECISIONS.md if a new architectural decision was made.
-3. Update docs/ARCHITECTURE.md if the system architecture changed.
-4. Update docs/ROADMAP.md only if long-term plans changed.
-5. Suggest an entry for LEARNINGS/DAY_XX.md
+1. Update `docs/PROJECT_STATUS.md`.
+2. Update `docs/DECISIONS.md` if a new architectural decision was made.
+3. Update `docs/ARCHITECTURE.md` if the system architecture changed.
+4. Update `docs/ROADMAP.md` only if long-term plans changed.
+5. Suggest an entry for `LEARNINGS/DAY_XX.md`.
 6. Suggest a Git commit message.
 
 ---
 
 # Documentation Rules
 
-PROJECT_STATUS.md
------------------
+### PROJECT_STATUS.md
 
 Update:
 
@@ -93,13 +102,11 @@ Update:
 - Next milestone
 - Known limitations
 
-ARCHITECTURE.md
----------------
+### ARCHITECTURE.md
 
 Update ONLY when architecture changes.
 
-DECISIONS.md
-------------
+### DECISIONS.md
 
 Every important engineering decision should be recorded.
 
@@ -110,8 +117,7 @@ Include:
 - Why chosen
 - Tradeoffs
 
-ROADMAP.md
-----------
+### ROADMAP.md
 
 Update only when roadmap changes.
 
@@ -136,3 +142,10 @@ Always end a coding session with:
 - Documentation updates
 - Git commit message
 - Suggested next task
+
+---
+
+# Slash Commands
+
+- `/start-session` - read project docs and propose the smallest useful task for this session.
+- `/end-session` - update project documentation based on this session's actual changes.
