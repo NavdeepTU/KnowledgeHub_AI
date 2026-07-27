@@ -2,7 +2,8 @@
 
 ## Current milestone
 
-Automated tests for the PDF ingestion API.
+Automated tests for the PDF ingestion API (complete). Next milestone
+(persisting extracted text) proposed but not yet started - see below.
 
 ## Completed
 
@@ -27,6 +28,20 @@ Automated tests for the PDF ingestion API.
   `settings.upload_directory` to a temp directory
 - Renamed deprecated `status.HTTP_422_UNPROCESSABLE_ENTITY` to
   `HTTP_422_UNPROCESSABLE_CONTENT` in `app/api/documents.py`
+- `README.md`, `docs/ARCHITECTURE.md`, and `docs/INTERVIEW_NOTES.md` filled
+  in (previously blank); `LEARNINGS/DAY_01.md` backfilled
+- `end-session` workflow updated to keep `DECISIONS.md` and
+  `INTERVIEW_NOTES.md` in sync going forward
+- Repository connected to GitHub (`git@github.com:NavdeepTU/KnowledgeHub_AI.git`)
+  over SSH; all prior commits pushed
+- Added a project-scoped `Stop` hook (`.claude/hooks/auto_push.sh`) that
+  pushes already-committed work to `origin` automatically after each turn;
+  it never commits anything itself
+
+## Work in progress
+
+None. The next milestone below was proposed this session but the session
+was redirected to GitHub/tooling setup before implementation started.
 
 ## Current limitations
 

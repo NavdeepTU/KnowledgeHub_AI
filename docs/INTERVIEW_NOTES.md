@@ -88,6 +88,26 @@ route handler — not because "layered architecture" was a goal on its own.
 
 ---
 
+## "Walk me through how you set up your git workflow with an AI coding assistant."
+
+*(from: Auto-push committed work via a Stop hook, never auto-commit)*
+
+I use Claude Code with a session-based workflow — small, scoped commits
+that I review and explicitly approve. I wanted pushes to happen without
+me remembering to run `git push` every time, so I added a hook that fires
+after each turn and pushes to `origin` if there are local commits ahead
+of the remote. Critically, the hook only pushes — it never commits.
+Committing still requires me to explicitly ask for it, so there's no risk
+of half-finished or unreviewed work silently landing on GitHub.
+
+**Follow-up to expect:** "What stops it from pushing broken code?" —
+Nothing automatic; the safety net is that nothing gets committed without
+my review in the first place. The hook operates strictly downstream of
+that human checkpoint, and a CI gate would be the next layer if this were
+a team project.
+
+---
+
 ## How to extend this file
 
 After a session that adds an entry to `docs/DECISIONS.md`, add a matching

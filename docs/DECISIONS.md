@@ -57,3 +57,57 @@ the fix is a safe, zero-risk rename discovered while running the new test
 suite.
 
 **Tradeoffs:** None meaningful — purely a naming update.
+
+---
+
+## Authenticate to GitHub over SSH rather than HTTPS + gh CLI
+
+**Decision:** Add the machine's existing SSH key to GitHub and set the
+remote as `git@github.com:NavdeepTU/KnowledgeHub_AI.git`.
+
+**Alternatives considered:**
+
+- Install the GitHub CLI (`gh`), authenticate interactively, and use it as
+  an HTTPS credential helper.
+
+**Why chosen:** An SSH key pair already existed on the machine but wasn't
+registered with GitHub yet (`ssh -T git@github.com` returned `Permission
+denied` before setup). Registering it is a one-time step with no new
+tooling to install, and SSH pushes never need a token or credential
+prompt afterward.
+
+**Tradeoffs:** SSH access is tied to this specific machine's key; a new
+machine would need its own key registered. `gh` would have additionally
+enabled scripted repo creation, which had to be done manually in the
+GitHub UI instead.
+
+---
+
+## Auto-push committed work via a Stop hook, never auto-commit
+
+**Decision:** Add a project-scoped Claude Code `Stop` hook
+(`.claude/settings.json` + `.claude/hooks/auto_push.sh`) that pushes the
+current branch to `origin` whenever there are local commits ahead of its
+upstream. The script never runs `git commit` itself.
+
+**Alternatives considered:**
+
+- Add a `git push` step to the manual `/end-session` command only (push
+  happens only when the developer remembers to run it).
+- A hook that also auto-commits any working-tree changes at session end.
+
+**Why chosen:** The developer wanted pushes to happen automatically
+without relying on remembering to run a command, matching the
+"push after every session" ask. Keeping the script push-only preserves
+the existing, separate rule that Claude never commits without being
+explicitly asked - automation was scoped to the least risky part of the
+workflow. The hook silently no-ops when there's nothing to push, no
+remote, or no upstream branch, and only prints a message when it actually
+pushes or fails, so it doesn't add noise on every turn.
+
+**Tradeoffs:** A `Stop` hook fires after every assistant turn, not just
+"end of session," so it runs far more often than the mental model of
+"once per session" suggests (harmless here since a no-op push is cheap).
+It also depends on `CLAUDE_PROJECT_DIR` being set correctly by the Claude
+Code harness, with a hardcoded absolute-path fallback that would break if
+the project directory ever moves.
