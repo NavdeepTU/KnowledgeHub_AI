@@ -119,7 +119,7 @@ async def upload_document(
         )
 
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="The uploaded file does not appear to be a valid PDF.",
         )
 
@@ -169,7 +169,7 @@ async def upload_document(
             )
 
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=str(exc),
         ) from exc
 
