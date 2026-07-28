@@ -2,10 +2,10 @@
 
 ## Current milestone
 
-Metadata extraction (complete). This closes out every item on
-`docs/ROADMAP.md` Phase 2 - the project is ready to move into Phase 3
-(embeddings, vector database, retrieval), which needs a scoping
-decision before implementation - see below.
+Phase 3 kickoff: embeddings + vector storage (complete for the write
+path). Chunks are embedded via OpenAI and stored in a local ChromaDB
+vector store during upload. Next milestone (a retrieval/search
+endpoint) proposed but not yet started - see below.
 
 ## Completed
 
@@ -100,10 +100,30 @@ decision before implementation - see below.
   the API response and the JSON sidecar. 4 new tests (PDF, DOCX, PPTX
   extraction, TXT's empty case) - 32 tests total, all passing
 - This closes out every item on `docs/ROADMAP.md` Phase 2
+- Decided Phase 3 scope explicitly: OpenAI (`text-embedding-3-small`)
+  for embeddings, ChromaDB (local, embedded, no server) for the vector
+  store
+- Added `EmbeddingService` (OpenAI client, lazily constructed so a
+  missing API key never breaks app startup or test collection - only
+  the first real embedding call) and `VectorStoreService` (wraps a
+  local `chromadb.PersistentClient`). Wired into the upload flow after
+  chunking: embedding/storage failures are treated as real failures
+  (500, cleaned up), not best-effort like metadata, since making a
+  document searchable is the actual point of this step
+- Tests use a fake OpenAI client and an isolated Chroma directory -
+  the full suite makes zero real network calls and costs nothing to
+  run. 8 new tests (embedding service, vector store service, 2
+  integration tests through the real upload flow) - 40 tests total,
+  all passing
+- Verified against the real app with a real (but quota-exceeded)
+  OpenAI key: confirmed a clean 500 on failure, automatic cleanup of
+  the partial upload, and that the server itself didn't crash
 
 ## Work in progress
 
-None.
+A retrieval/search endpoint that actually queries the vector store -
+embeddings are being generated and stored, but nothing reads them back
+yet.
 
 ## Current limitations
 
@@ -118,22 +138,26 @@ None.
   document at a time, but there's no way to search or list across
   documents yet
 - No background processing
-- No embeddings or retrieval - chunks exist but nothing turns them into
-  vectors yet
+- Embeddings are generated synchronously during the upload request -
+  adds OpenAI API latency to every upload, no async/background queue
+- No retrieval endpoint yet - chunks are embedded and stored, but
+  nothing queries the vector store back
 - DOCX/PPTX `created_at` may reflect the authoring tool's default
   template timestamp rather than a real authorship date, if the
   document never set one explicitly - a real quirk of those formats,
   not a bug in extraction
+- The OpenAI account currently used for testing has no billing/quota
+  configured, so real embedding calls fail with a 429 until that's set
+  up on platform.openai.com
 - `starlette.testclient` emits a deprecation warning about `httpx` in favor
   of an `httpx2` package in the currently installed Starlette version; not
   addressed yet, tests are unaffected
 
 ## Next likely milestone
 
-Phase 3 (embeddings, vector database, retrieval) is next per
-`docs/ROADMAP.md`, but unlike every milestone so far, it needs a
-scoping decision before implementation: which embedding
-provider/model (e.g. a hosted API vs. a local model) and which vector
-store. This is a bigger step than the format/chunking/metadata work -
-it introduces an external dependency and likely cost, so it should be
-discussed and decided explicitly rather than picked unilaterally.
+Add a retrieval/search endpoint: embed a query string with the same
+`EmbeddingService`, query `VectorStoreService` for the nearest chunks,
+and return them (with their document/chunk metadata) as results. This
+is the natural next step now that chunks are actually stored as
+vectors, and it's what Phase 3's "Similarity search" and "Citations"
+roadmap items depend on.

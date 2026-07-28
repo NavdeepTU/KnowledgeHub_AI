@@ -24,6 +24,8 @@ flowchart TD
     subgraph Services["app/services"]
         service["document_service.py<br/>save_document / extract_text (dispatcher) / persist_metadata"]
         chunking["chunking_service.py<br/>chunk_text"]
+        embedding["embedding_service.py<br/>embed_texts"]
+        vectorstore["vector_store_service.py<br/>upsert_chunks"]
     end
 
     subgraph Core["app/core"]
@@ -34,10 +36,14 @@ flowchart TD
     documents --> schema
     documents --> service
     documents --> chunking
+    documents --> embedding
+    documents --> vectorstore
     documents --> config
     documents --> logging_
     service --> logging_
     chunking --> logging_
+    embedding --> logging_
+    vectorstore --> logging_
 ```
 
 **Why this split:**
@@ -46,11 +52,12 @@ flowchart TD
   request, calling a service, mapping results/exceptions to status codes.
   It has no PDF-parsing or filesystem logic in it.
 - `services/` holds the actual business logic (how a file is stored, how
-  text is extracted, how it's chunked) so it can be tested or reused
-  without spinning up HTTP at all. Chunking lives in its own
-  `ChunkingService` rather than inside `DocumentService`, since it's a
-  distinct responsibility with its own algorithm and config, not tied to
-  any particular file format.
+  text is extracted, how it's chunked, embedded, and stored for search)
+  so it can be tested or reused without spinning up HTTP at all.
+  Chunking, embedding, and vector storage each live in their own
+  service rather than inside `DocumentService`, since each is a
+  distinct responsibility with its own external dependency (or none),
+  not tied to any particular file format.
 - `schemas/` defines the response contract independently of both, so the
   API's public shape doesn't leak internal service types.
 - `core/` holds things every layer needs (configuration, logging) without
@@ -70,6 +77,8 @@ sequenceDiagram
     participant Service as DocumentService
     participant Extractor as format extractor
     participant Chunker as ChunkingService
+    participant Embedder as EmbeddingService
+    participant VectorStore as VectorStoreService
 
     Client->>Router: multipart upload
     Router->>Router: look up extension in SUPPORTED_FORMATS
@@ -88,6 +97,9 @@ sequenceDiagram
         Service-->>Router: (text, page_count)
         Router->>Chunker: chunk_text(text, chunk_size, overlap)
         Chunker-->>Router: list[DocumentChunk]
+        Router->>Embedder: embed_texts(chunk texts, model)
+        Embedder-->>Router: list[list[float]] (or raises - not best-effort)
+        Router->>VectorStore: upsert_chunks(document_id, filename, chunks, embeddings)
         Router->>Service: extract_metadata(path)
         Service-->>Router: DocumentMetadata (best-effort, never raises)
         Router->>Service: persist_metadata(DocumentRecord, upload_directory)
@@ -95,6 +107,14 @@ sequenceDiagram
         Router-->>Client: 201 DocumentUploadResponse
     end
 ```
+
+Embedding/vector-storage failures are deliberately *not* best-effort
+like metadata: if `EmbeddingService.embed_texts` raises (bad key, no
+billing, rate limit), it falls through to the router's generic
+exception handler like any other unrecoverable failure - 500, saved
+file cleaned up. Making a document searchable is the actual point of
+this step, so a silent "201 success, but never indexed" would be worse
+than a clear failure.
 
 Validation is intentionally layered defense-in-depth, in this order:
 extension -> MIME type -> emptiness -> size -> file signature (only for
@@ -143,21 +163,33 @@ happens.
   extraction. DOCX/PPTX's `created_at` may reflect the authoring tool's
   default template timestamp rather than a real authorship date if the
   document never set one explicitly.
+- **Embeddings + vector storage:** `EmbeddingService` wraps the OpenAI
+  client (`text-embedding-3-small` by default), constructed *lazily* -
+  a missing API key raises immediately on client construction, which
+  would otherwise break app startup and test collection for anyone
+  without one configured. `VectorStoreService` wraps a local, embedded
+  `chromadb.PersistentClient` (`chroma_db/`, gitignored) - no server
+  process, matching the project's pattern of avoiding new
+  infrastructure until it's needed. Each chunk is stored with its
+  document ID, filename, and offsets as metadata, keyed as
+  `<document_id>:<chunk_index>`. Embedding happens synchronously in the
+  upload request - added latency, no background queue yet.
 
 ## Where this goes next
 
 Per `docs/ROADMAP.md`, this closes out Phase 2 (Document Processing)
-entirely. The next architectural additions are Phase 3:
+entirely, and Phase 3 (Retrieval) has started on the write path. What's
+left:
 
-1. **A real database** - once something needs to query or list across
+1. **Retrieval** - a query-time service that embeds a search string
+   with the same `EmbeddingService` and queries `VectorStoreService`
+   for the nearest chunks. Nothing reads the vector store back yet.
+2. **Citations** - surfacing which document/chunk (and its
+   `start_offset`/`end_offset`) an answer came from, using metadata
+   that's already being stored.
+3. **A real database** - once something needs to query or list across
    documents rather than looking up one JSON file at a time, the sidecar
    files get replaced by a database and likely a `repositories/` layer.
-2. **Embeddings** - turning chunks into vectors, likely the point where
-   chunk-level metadata (embedding model, vector) gets added to
-   `DocumentChunk`. Needs a model/provider decision first - the first
-   milestone in this project that introduces an external dependency and
-   likely cost, not just an implementation choice.
-3. **Retrieval** - a vector store dependency and a query-time service.
 4. **RAG / agents** - orchestration on top of retrieval, likely LangGraph.
 
 Each addition should be evaluated against the same question used to build

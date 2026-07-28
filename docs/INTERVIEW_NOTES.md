@@ -215,6 +215,49 @@ six working extractors.
 
 ---
 
+## "Why OpenAI and ChromaDB for your embeddings and vector store?"
+
+*(from: Choose OpenAI embeddings and ChromaDB for Phase 3)*
+
+I treated this as an explicit scoping decision rather than picking
+unilaterally, because it's the first milestone in the project that
+introduces a paid external dependency. OpenAI's `text-embedding-3-small`
+is the default choice most interviewers would expect and is cheap per
+token; ChromaDB is embedded — no server to run — and gives me
+persistence and metadata filtering for free instead of hand-rolling an
+ID-to-chunk mapping on top of something like FAISS. The real cost is
+dependency weight: ChromaDB alone pulled in onnxruntime, a Kubernetes
+client, and OpenTelemetry.
+
+**Follow-up to expect:** "What would you reconsider at scale?" — Both
+choices are reasonable defaults for a project this size, not a claim
+they're right at production scale — a managed vector store or a
+self-hosted open embedding model would be the next things I'd
+evaluate under real load or cost pressure.
+
+---
+
+## "Your embedding client is constructed lazily — what does that actually protect against?"
+
+*(from: Lazily construct the OpenAI client; treat embedding failures as hard failures unlike metadata)*
+
+I tested this directly: constructing the OpenAI client with no API key
+anywhere raises immediately, not on first request. Since the service is
+instantiated once at import time, doing that eagerly would have broken
+the entire app — including the test suite — for anyone without a key
+configured, even for requests that never touch embeddings. So the real
+client only gets built on the first actual `embed_texts` call. I also
+made embedding failures hard failures, unlike metadata, because making
+a document searchable is the actual point of this step — a silent
+"uploaded but never indexed" would be worse than a clear error.
+
+**Follow-up to expect:** "Did you verify that, or is it theoretical?" —
+Verified against a real account with no billing configured: got a clean
+500, confirmed the saved file was deleted, and confirmed the server
+kept serving other requests afterward.
+
+---
+
 ## How to extend this file
 
 After a session that adds an entry to `docs/DECISIONS.md`, add a matching

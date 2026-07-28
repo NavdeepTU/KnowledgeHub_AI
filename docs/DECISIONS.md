@@ -280,3 +280,79 @@ revisiting if this becomes a hot path. The best-effort `except
 Exception` in `extract_metadata` is the one place in the codebase that
 catches broadly rather than a specific exception type - a deliberate,
 commented exception to that general rule, not a new default.
+
+---
+
+## Choose OpenAI embeddings and ChromaDB for Phase 3
+
+**Decision:** Use OpenAI's `text-embedding-3-small` to embed chunks,
+and a local, embedded ChromaDB instance (`chromadb.PersistentClient`)
+as the vector store.
+
+**Alternatives considered:**
+
+- A local `sentence-transformers` model instead of OpenAI - free, no
+  API key, fully offline, but slower/less accurate and needs to bundle
+  or download model weights.
+- Cohere embeddings - another hosted option, less commonly expected in
+  interviews than OpenAI.
+- FAISS instead of ChromaDB - an even lighter dependency, but with no
+  built-in persistence or ID/metadata management, meaning a hand-rolled
+  mapping from index positions back to document/chunk IDs.
+- PostgreSQL + pgvector - would also satisfy the still-pending "replace
+  JSON sidecars with a real database" item, but pulls Phase 5's
+  Postgres decision forward early and needs a running Postgres instance.
+
+**Why chosen:** OpenAI's embeddings are the default choice most
+interviewers will assume, and the small model is inexpensive per
+token. ChromaDB is embedded (no server process, no new infrastructure
+to run) and gives persistence, upsert, and metadata filtering for free
+- exactly what a hand-rolled FAISS setup would otherwise require
+building. This was an explicit, discussed decision rather than a
+unilateral pick, since it's the first milestone in this project that
+introduces both an external paid dependency and a much larger
+transitive dependency tree (ChromaDB alone pulls in onnxruntime, a
+Kubernetes client, and OpenTelemetry).
+
+**Tradeoffs:** Embedding now requires a funded OpenAI account and
+network access - the project is no longer fully offline/free to run
+end-to-end. ChromaDB's dependency footprint is large relative to
+everything installed so far. Neither choice is validated against scale
+yet; both are reasonable defaults for a project at this size, not a
+claim that they're the right choice at production scale.
+
+---
+
+## Lazily construct the OpenAI client; treat embedding failures as hard failures unlike metadata
+
+**Decision:** `EmbeddingService` does not construct the real OpenAI
+client in `__init__` - only on first actual use, inside `embed_texts`.
+Unlike metadata extraction, a failure in embedding or vector storage is
+not caught and downgraded - it propagates into the router's existing
+generic exception handler (500, saved file cleaned up).
+
+**Alternatives considered:**
+
+- Construct the OpenAI client eagerly at service instantiation (module
+  import time), matching how `VectorStoreService`'s Chroma client is
+  constructed.
+- Make embedding best-effort too, the same as metadata extraction.
+
+**Why chosen:** Verified directly that constructing `OpenAI(api_key=...)`
+with no key available anywhere (arg or env var) raises immediately.
+Since `EmbeddingService` is instantiated at module import time in
+`app/api/documents.py`, eager construction would have broken the entire
+app - including test collection - for anyone without an API key
+configured, even for requests that never touch embeddings. Making
+embedding failures hard failures, unlike metadata, follows from what
+this step actually accomplishes: metadata is a nice-to-have, but making
+a document searchable *is the point* of this milestone - a silent
+"201 success, but never indexed" would be a worse outcome than a clear
+error, and much harder to debug later.
+
+**Tradeoffs:** A transient OpenAI outage or rate limit now fails an
+otherwise-successful upload entirely, deleting the saved file - there's
+no partial state (document saved, chunked, and readable, but not yet
+searchable). Verified this behavior directly against a real, but
+quota-exceeded, OpenAI account: got a clean 500, confirmed the file was
+cleaned up, and confirmed the server itself kept running.
