@@ -135,6 +135,11 @@ Never generate large amounts of code unless requested.
 
 Keep implementations production-oriented but simple.
 
+Default to simple, plain language in terminal output - avoid unnecessary
+jargon and deep technical explanations. Assume the reader wants to
+understand what happened and why, not a specification. Only go in-depth
+or technical when the user explicitly asks for more detail.
+
 Always end a coding session with:
 
 - Summary
