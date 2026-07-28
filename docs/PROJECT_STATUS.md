@@ -2,10 +2,11 @@
 
 ## Current milestone
 
-Phase 3 kickoff: embeddings + vector storage (complete for the write
-path). Chunks are embedded via OpenAI and stored in a local ChromaDB
-vector store during upload. Next milestone (a retrieval/search
-endpoint) proposed but not yet started - see below.
+Phase 3 core complete: chunks are embedded locally (`sentence-transformers`)
+and stored in ChromaDB during upload, and `POST /documents/search`
+reads them back. The full pipeline - upload, extract, chunk, embed,
+store, and retrieve - has been verified end-to-end against the real
+running app with no external API dependency.
 
 ## Completed
 
@@ -115,15 +116,35 @@ endpoint) proposed but not yet started - see below.
   run. 8 new tests (embedding service, vector store service, 2
   integration tests through the real upload flow) - 40 tests total,
   all passing
-- Verified against the real app with a real (but quota-exceeded)
-  OpenAI key: confirmed a clean 500 on failure, automatic cleanup of
-  the partial upload, and that the server itself didn't crash
+- Verified the OpenAI-based pipeline against the real app with a real
+  (but quota-exceeded) OpenAI key: confirmed a clean 500 on failure,
+  automatic cleanup of the partial upload, and that the server itself
+  didn't crash
+- Added `POST /documents/search`: embeds the query string with
+  `EmbeddingService` and returns the nearest chunks from
+  `VectorStoreService`, via new `SearchRequest`/`SearchResponse`
+  schemas. No new service - the router composes two already-tested
+  service methods directly. 5 new tests (results returned, limit
+  respected, empty store, empty query rejected, out-of-range limit
+  rejected) - 45 tests total, all passing
+- Switched `EmbeddingService` from OpenAI to a local
+  `sentence-transformers` model (`all-MiniLM-L6-v2`, 384-dim), because
+  the OpenAI account had no billing configured and every real embedding
+  call failed with a 429. Removed `openai` and `openai_api_key`
+  entirely; `EmbeddingService` now takes an optional `encoder` callable
+  for test injection instead of a fake HTTP client. The project now
+  runs fully offline with zero external API cost. 4 embedding-service
+  tests rewritten for the new interface - 50 tests total, all passing
+- Verified the new local pipeline end-to-end against the real running
+  app: uploaded a real text file, confirmed embeddings were generated
+  and stored in ChromaDB, and confirmed `/documents/search` correctly
+  retrieved it - the first time this pipeline has actually succeeded
+  end-to-end, since every prior OpenAI attempt was blocked by billing
 
 ## Work in progress
 
-A retrieval/search endpoint that actually queries the vector store -
-embeddings are being generated and stored, but nothing reads them back
-yet.
+Nothing in progress - Phase 3's core retrieval loop (embed, store,
+search) is complete and verified. See "Next likely milestone" below.
 
 ## Current limitations
 
@@ -135,29 +156,29 @@ yet.
   (none exist reliably for plain text) - a mislabeled binary file that
   happens to decode as UTF-8 would be silently accepted
 - Persisted as flat JSON files, not a queryable database - fine for one
-  document at a time, but there's no way to search or list across
-  documents yet
+  document at a time, but there's no way to list across documents yet
+  (search across their embedded content does work)
 - No background processing
 - Embeddings are generated synchronously during the upload request -
-  adds OpenAI API latency to every upload, no async/background queue
-- No retrieval endpoint yet - chunks are embedded and stored, but
-  nothing queries the vector store back
+  adds latency (model load on first use, then fast) to every upload,
+  no async/background queue
 - DOCX/PPTX `created_at` may reflect the authoring tool's default
   template timestamp rather than a real authorship date, if the
   document never set one explicitly - a real quirk of those formats,
   not a bug in extraction
-- The OpenAI account currently used for testing has no billing/quota
-  configured, so real embedding calls fail with a 429 until that's set
-  up on platform.openai.com
+- `all-MiniLM-L6-v2` is a smaller, less accurate embedding model than
+  OpenAI's `text-embedding-3-small` - retrieval quality is a step down
+  in exchange for zero cost and no network dependency
+- Search results are not yet surfaced with human-readable citations
+  (document/chunk offsets are returned, but nothing formats them)
 - `starlette.testclient` emits a deprecation warning about `httpx` in favor
   of an `httpx2` package in the currently installed Starlette version; not
   addressed yet, tests are unaffected
 
 ## Next likely milestone
 
-Add a retrieval/search endpoint: embed a query string with the same
-`EmbeddingService`, query `VectorStoreService` for the nearest chunks,
-and return them (with their document/chunk metadata) as results. This
-is the natural next step now that chunks are actually stored as
-vectors, and it's what Phase 3's "Similarity search" and "Citations"
-roadmap items depend on.
+Add citations: format each search result's `document_id`/`filename`/
+`start_offset`/`end_offset` into a human-readable reference, since all
+the underlying data is already returned by `/documents/search`. This is
+the smallest remaining Phase 3 item before moving on to a real database
+or RAG/agent orchestration.

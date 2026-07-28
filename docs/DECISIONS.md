@@ -356,3 +356,76 @@ no partial state (document saved, chunked, and readable, but not yet
 searchable). Verified this behavior directly against a real, but
 quota-exceeded, OpenAI account: got a clean 500, confirmed the file was
 cleaned up, and confirmed the server itself kept running.
+
+---
+
+## Add `POST /documents/search` as a thin router endpoint, no new service
+
+**Decision:** Add a retrieval endpoint directly in `app/api/documents.py`
+that embeds the incoming query string with the existing
+`EmbeddingService` and passes it to `VectorStoreService.query_similar_chunks`,
+returning the nearest chunks via new `SearchRequest`/`SearchResponse`
+schemas. No new service class was introduced.
+
+**Alternatives considered:**
+
+- A dedicated `SearchService` or `RetrievalService` to hold this logic,
+  matching the pattern used for chunking/embedding/vector storage.
+
+**Why chosen:** The endpoint's entire job is "embed one string, query
+one store, return the result" - both steps already exist as tested
+service methods. Wrapping that in a new service would be an empty
+pass-through with no logic of its own, the kind of premature
+abstraction the project explicitly avoids. `SearchRequest` validates
+`query` (non-empty) and `limit` (1-50) at the schema layer so the
+router stays focused on orchestration.
+
+**Tradeoffs:** If retrieval grows real logic later (query rewriting,
+re-ranking, hybrid search), it will need to be extracted into its own
+service at that point - this is a deliberately deferred decision, not
+a claim that a router is the right home for retrieval forever.
+
+---
+
+## Switch embeddings from OpenAI to a local `sentence-transformers` model
+
+**Decision:** Replace `EmbeddingService`'s OpenAI client with a locally
+run `sentence-transformers` model (`all-MiniLM-L6-v2`, 384-dimensional),
+loaded lazily on first use via `SentenceTransformer(model_name)`. Removed
+`openai` and `openai_api_key` entirely - the config field is now
+`embedding_model_name`, and `EmbeddingService` takes an optional
+`encoder: Callable[[list[str]], list[list[float]]]` for test injection
+instead of a fake HTTP client.
+
+**Alternatives considered:**
+
+- Fix the OpenAI account's billing (add a payment method) and keep the
+  hosted model.
+- Use Claude for embeddings - ruled out immediately: Anthropic has no
+  embeddings API, and a Claude Pro subscription is a separate product
+  from API access entirely, same distinction as ChatGPT Plus vs. the
+  OpenAI API.
+
+**Why chosen:** The OpenAI account used for this project has no billing
+configured, so every real embedding call failed with a 429
+`insufficient_quota` - including a real upload the developer attempted
+through Swagger UI. Rather than depend on a billing fix outside the
+project's control, switching to a free, offline, local model removes
+the last paid/networked dependency from the app entirely: it can now be
+cloned and run end-to-end by anyone, including an interviewer, with no
+API key and no cost. This directly reverses the tradeoff accepted in
+"Choose OpenAI embeddings and ChromaDB for Phase 3" once it actually
+bit.
+
+**Tradeoffs:** `all-MiniLM-L6-v2` is a smaller, less accurate model than
+`text-embedding-3-small` - retrieval quality is not directly comparable.
+The first model load takes several seconds (verified: ~6-11s from a
+local cache) and downloads ~90MB of weights on first-ever run, which
+OpenAI's embeddings didn't require. `sentence-transformers` pulls in a
+much heavier dependency tree than the `openai` client did - `torch`,
+`transformers`, `scikit-learn`, and their transitives - trading network
+dependency for disk footprint (installing it also surfaced a real disk
+space shortage on the dev machine, resolved by clearing a 3.7GB pip
+cache). The lazy-construction and hard-failure-on-error design from the
+OpenAI version both carried over unchanged, since neither reason for
+those choices was specific to OpenAI.

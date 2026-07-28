@@ -464,3 +464,59 @@ def test_upload_failure_does_not_store_chunks_in_vector_store(
     )
 
     assert isolated_vector_services._collection.count() == 0
+
+
+def test_search_returns_results_from_uploaded_document(client: TestClient) -> None:
+    client.post(
+        "/documents/upload",
+        files={"file": ("notes.txt", b"knowledge base search test", "text/plain")},
+    )
+
+    response = client.post("/documents/search", json={"query": "search test"})
+
+    assert response.status_code == 200
+
+    body = response.json()
+    assert body["query"] == "search test"
+    assert len(body["results"]) == 1
+
+    result = body["results"][0]
+    assert result["filename"] == "notes.txt"
+    assert result["text"] == "knowledge base search test"
+    assert "distance" in result
+
+
+def test_search_respects_limit(client: TestClient) -> None:
+    content = ("word " * 1000).encode("utf-8")  # multiple chunks
+
+    client.post(
+        "/documents/upload",
+        files={"file": ("notes.txt", content, "text/plain")},
+    )
+
+    response = client.post(
+        "/documents/search", json={"query": "word", "limit": 1}
+    )
+
+    assert len(response.json()["results"]) == 1
+
+
+def test_search_on_empty_vector_store_returns_no_results(client: TestClient) -> None:
+    response = client.post("/documents/search", json={"query": "anything"})
+
+    assert response.status_code == 200
+    assert response.json()["results"] == []
+
+
+def test_search_rejects_empty_query(client: TestClient) -> None:
+    response = client.post("/documents/search", json={"query": ""})
+
+    assert response.status_code == 422
+
+
+def test_search_rejects_limit_out_of_range(client: TestClient) -> None:
+    response = client.post(
+        "/documents/search", json={"query": "test", "limit": 100}
+    )
+
+    assert response.status_code == 422

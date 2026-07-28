@@ -4,7 +4,13 @@ from pathlib import Path
 from fastapi import APIRouter, File, HTTPException, UploadFile, status
 
 from app.core.config import settings
-from app.schemas.document import DocumentRecord, DocumentUploadResponse, IngestionStatus
+from app.schemas.document import (
+    DocumentRecord,
+    DocumentUploadResponse,
+    IngestionStatus,
+    SearchRequest,
+    SearchResponse,
+)
 from app.services.chunking_service import ChunkingService
 from app.services.document_service import SUPPORTED_FORMATS, DocumentService
 from app.services.embedding_service import EmbeddingService
@@ -20,7 +26,7 @@ router = APIRouter(
 
 document_service = DocumentService()
 chunking_service = ChunkingService()
-embedding_service = EmbeddingService(api_key=settings.openai_api_key)
+embedding_service = EmbeddingService(model_name=settings.embedding_model_name)
 vector_store_service = VectorStoreService(
     persist_directory=settings.chroma_persist_directory,
 )
@@ -171,12 +177,11 @@ async def upload_document(
 
         # Unlike metadata extraction, embedding failures are not treated
         # as best-effort: making a document searchable is the actual
-        # point of this step, so a failure here (bad API key, no
-        # billing, rate limit) should surface as a real upload failure
-        # rather than silently producing a document nothing can find.
+        # point of this step, so a failure here should surface as a real
+        # upload failure rather than silently producing a document
+        # nothing can find.
         embeddings = embedding_service.embed_texts(
             [chunk.text for chunk in chunks],
-            model=settings.embedding_model,
         )
 
         vector_store_service.upsert_chunks(
@@ -258,4 +263,45 @@ async def upload_document(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="An unexpected error occurred while processing the file.",
+        ) from exc
+
+
+@router.post("/search", response_model=SearchResponse)
+async def search_documents(request: SearchRequest) -> SearchResponse:
+    """
+    Search for chunks most similar to a query string.
+
+    Embeds the query with the same model used for chunks at upload
+    time, then returns the nearest matches with enough metadata
+    (document_id, filename, offsets) to cite where each result came
+    from.
+    """
+    logger.info(
+        "Search request received | query=%s | limit=%s",
+        request.query,
+        request.limit,
+    )
+
+    try:
+        query_embedding = embedding_service.embed_texts([request.query])[0]
+
+        results = vector_store_service.query_similar_chunks(
+            query_embedding,
+            limit=request.limit,
+        )
+
+        logger.info(
+            "Search completed | query=%s | results=%s",
+            request.query,
+            len(results),
+        )
+
+        return SearchResponse(query=request.query, results=results)
+
+    except Exception as exc:
+        logger.exception("Search failed | query=%s", request.query)
+
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An unexpected error occurred while searching.",
         ) from exc

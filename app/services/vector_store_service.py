@@ -3,7 +3,7 @@ from pathlib import Path
 
 import chromadb
 
-from app.schemas.document import DocumentChunk
+from app.schemas.document import DocumentChunk, SearchResult
 
 
 logger = logging.getLogger(__name__)
@@ -60,3 +60,36 @@ class VectorStoreService:
             document_id,
             len(chunks),
         )
+
+    def query_similar_chunks(
+        self,
+        query_embedding: list[float],
+        limit: int,
+    ) -> list[SearchResult]:
+        """
+        Return the chunks most similar to a query embedding, nearest
+        first. Safe to call on an empty vector store (returns an empty
+        list) or with a limit larger than the number of stored chunks
+        (Chroma caps it automatically) - both verified directly.
+        """
+        result = self._collection.query(
+            query_embeddings=[query_embedding],
+            n_results=limit,
+        )
+
+        texts = result["documents"][0]
+        metadatas = result["metadatas"][0]
+        distances = result["distances"][0]
+
+        return [
+            SearchResult(
+                document_id=metadata["document_id"],
+                filename=metadata["filename"],
+                chunk_index=metadata["chunk_index"],
+                text=text,
+                start_offset=metadata["start_offset"],
+                end_offset=metadata["end_offset"],
+                distance=distance,
+            )
+            for text, metadata, distance in zip(texts, metadatas, distances)
+        ]

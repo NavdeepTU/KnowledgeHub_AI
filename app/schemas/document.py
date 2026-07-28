@@ -1,7 +1,7 @@
 from datetime import datetime
 from enum import Enum
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class IngestionStatus(str, Enum):
@@ -62,3 +62,30 @@ class DocumentRecord(BaseModel):
     chunks: list[DocumentChunk]
     metadata: DocumentMetadata
     status: IngestionStatus
+
+
+class SearchRequest(BaseModel):
+    query: str = Field(min_length=1)
+    limit: int = Field(default=5, gt=0, le=50)
+
+
+class SearchResult(BaseModel):
+    """One chunk found to be similar to a search query.
+
+    Carries enough to cite its source (document_id, filename, offsets)
+    since that's the whole point of returning a chunk instead of just a
+    raw similarity score.
+    """
+
+    document_id: str
+    filename: str
+    chunk_index: int
+    text: str
+    start_offset: int
+    end_offset: int
+    distance: float
+
+
+class SearchResponse(BaseModel):
+    query: str
+    results: list[SearchResult]

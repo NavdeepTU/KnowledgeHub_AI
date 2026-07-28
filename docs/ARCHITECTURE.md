@@ -109,12 +109,35 @@ sequenceDiagram
 ```
 
 Embedding/vector-storage failures are deliberately *not* best-effort
-like metadata: if `EmbeddingService.embed_texts` raises (bad key, no
-billing, rate limit), it falls through to the router's generic
-exception handler like any other unrecoverable failure - 500, saved
-file cleaned up. Making a document searchable is the actual point of
-this step, so a silent "201 success, but never indexed" would be worse
-than a clear failure.
+like metadata: if `EmbeddingService.embed_texts` raises, it falls
+through to the router's generic exception handler like any other
+unrecoverable failure - 500, saved file cleaned up. Making a document
+searchable is the actual point of this step, so a silent "201 success,
+but never indexed" would be worse than a clear failure.
+
+## Request flow: `POST /documents/search`
+
+```mermaid
+sequenceDiagram
+    participant Client
+    participant Router as documents.py
+    participant Embedder as EmbeddingService
+    participant VectorStore as VectorStoreService
+
+    Client->>Router: {query, limit}
+    Router->>Embedder: embed_texts([query])
+    Embedder-->>Router: query embedding
+    Router->>VectorStore: query_similar_chunks(embedding, limit)
+    VectorStore-->>Router: list[SearchResult] (nearest chunks first)
+    Router-->>Client: SearchResponse {query, results}
+```
+
+`SearchRequest` validates `query` (non-empty) and `limit` (1-50) at the
+schema layer via Pydantic `Field` constraints, so the router itself has
+no manual validation to do. There is no dedicated search/retrieval
+service - the endpoint composes two already-tested service methods
+directly, since a wrapper service would add no logic of its own (see
+`docs/DECISIONS.md`).
 
 Validation is intentionally layered defense-in-depth, in this order:
 extension -> MIME type -> emptiness -> size -> file signature (only for
@@ -163,34 +186,39 @@ happens.
   extraction. DOCX/PPTX's `created_at` may reflect the authoring tool's
   default template timestamp rather than a real authorship date if the
   document never set one explicitly.
-- **Embeddings + vector storage:** `EmbeddingService` wraps the OpenAI
-  client (`text-embedding-3-small` by default), constructed *lazily* -
-  a missing API key raises immediately on client construction, which
-  would otherwise break app startup and test collection for anyone
-  without one configured. `VectorStoreService` wraps a local, embedded
-  `chromadb.PersistentClient` (`chroma_db/`, gitignored) - no server
-  process, matching the project's pattern of avoiding new
-  infrastructure until it's needed. Each chunk is stored with its
-  document ID, filename, and offsets as metadata, keyed as
+- **Embeddings + vector storage:** `EmbeddingService` wraps a local
+  `sentence-transformers` model (`all-MiniLM-L6-v2` by default,
+  384-dimensional), constructed *lazily* - the model is only loaded on
+  first actual `embed_texts` call, not at import time, since loading
+  takes several seconds and would otherwise slow down app startup and
+  every test collection. No API key, no network dependency after the
+  weights are first downloaded, no per-call cost. `VectorStoreService`
+  wraps a local, embedded `chromadb.PersistentClient` (`chroma_db/`,
+  gitignored) - no server process, matching the project's pattern of
+  avoiding new infrastructure until it's needed. Each chunk is stored
+  with its document ID, filename, and offsets as metadata, keyed as
   `<document_id>:<chunk_index>`. Embedding happens synchronously in the
   upload request - added latency, no background queue yet.
+- **Retrieval:** `POST /documents/search` embeds the query string with
+  the same `EmbeddingService` used at upload time and queries
+  `VectorStoreService` for the nearest chunks, returning each result's
+  document ID, filename, chunk text, offsets, and distance. Verified
+  end-to-end against the real running app.
 
 ## Where this goes next
 
 Per `docs/ROADMAP.md`, this closes out Phase 2 (Document Processing)
-entirely, and Phase 3 (Retrieval) has started on the write path. What's
-left:
+and the core of Phase 3 (Retrieval) - both the write path (embed +
+store) and the read path (`POST /documents/search`) exist end-to-end.
+What's left:
 
-1. **Retrieval** - a query-time service that embeds a search string
-   with the same `EmbeddingService` and queries `VectorStoreService`
-   for the nearest chunks. Nothing reads the vector store back yet.
-2. **Citations** - surfacing which document/chunk (and its
+1. **Citations** - surfacing which document/chunk (and its
    `start_offset`/`end_offset`) an answer came from, using metadata
-   that's already being stored.
-3. **A real database** - once something needs to query or list across
+   that's already being stored and already returned by search.
+2. **A real database** - once something needs to query or list across
    documents rather than looking up one JSON file at a time, the sidecar
    files get replaced by a database and likely a `repositories/` layer.
-4. **RAG / agents** - orchestration on top of retrieval, likely LangGraph.
+3. **RAG / agents** - orchestration on top of retrieval, likely LangGraph.
 
 Each addition should be evaluated against the same question used to build
 this layer split: does it belong in `api`, `services`, or `core`, and does

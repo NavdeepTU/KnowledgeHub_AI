@@ -12,7 +12,7 @@ from app.core.config import settings
 from app.main import app
 from app.services.embedding_service import EmbeddingService
 from app.services.vector_store_service import VectorStoreService
-from tests.fakes import FakeOpenAIClient
+from tests.fakes import fake_encoder
 
 
 @pytest.fixture(autouse=True)
@@ -27,12 +27,13 @@ def isolated_vector_services(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> VectorStoreService:
     """
-    Replace the real embedding and vector-store services with local,
-    free test doubles: a fake OpenAI client (no network/cost/key) and a
-    throwaway Chroma directory (still real Chroma, since it's local and
-    free - only the paid API needs faking).
+    Replace the real embedding and vector-store services with fast test
+    doubles: a fake encoder (skips loading the real sentence-transformers
+    model, which takes several seconds) and a throwaway Chroma directory
+    (still real Chroma, since it's local and free - only the slow model
+    load needs faking).
     """
-    fake_embedding_service = EmbeddingService(client=FakeOpenAIClient())
+    fake_embedding_service = EmbeddingService(encoder=fake_encoder)
     monkeypatch.setattr(documents_module, "embedding_service", fake_embedding_service)
 
     test_vector_store = VectorStoreService(persist_directory=tmp_path / "chroma_test")

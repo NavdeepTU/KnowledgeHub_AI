@@ -258,6 +258,48 @@ kept serving other requests afterward.
 
 ---
 
+## "Why doesn't your search endpoint have its own service class?"
+
+*(from: Add `POST /documents/search` as a thin router endpoint)*
+
+Because it doesn't do anything beyond calling two methods that already
+exist and are already tested — embed the query string, then query the
+vector store for the nearest chunks. Wrapping that in a `SearchService`
+would just be a pass-through with no logic of its own, which is exactly
+the kind of abstraction I try not to add before it earns its place. If
+retrieval later grows real logic — re-ranking, query rewriting, hybrid
+search — that's when it'd justify its own service.
+
+**Follow-up to expect:** "Where does query validation happen?" — At the
+schema layer: `SearchRequest` enforces a non-empty query and a limit
+between 1 and 50 with Pydantic `Field` constraints, so the router never
+has to hand-check them.
+
+---
+
+## "You picked OpenAI for embeddings, then switched. What happened?"
+
+*(from: Switch embeddings from OpenAI to a local sentence-transformers model)*
+
+The OpenAI account I was using had no billing configured, so every real
+embedding call — including a real upload I tried through Swagger UI —
+failed with a 429 quota error. Rather than block the project on a
+billing fix, I switched `EmbeddingService` to a local
+`sentence-transformers` model, `all-MiniLM-L6-v2`, loaded lazily the
+same way the OpenAI client was. That removes the last paid, networked
+dependency from the whole app — anyone can clone it and run it
+end-to-end for free, no API key needed, which matters a lot for a
+portfolio project an interviewer might actually run.
+
+**Follow-up to expect:** "What did you give up?" — Retrieval quality:
+`all-MiniLM-L6-v2` is smaller and less accurate than
+`text-embedding-3-small`, and it also pulled in a much heavier
+dependency tree — `torch` and `transformers` — trading a network
+dependency for real disk footprint, which actually ran my dev machine
+out of disk space mid-install.
+
+---
+
 ## How to extend this file
 
 After a session that adds an entry to `docs/DECISIONS.md`, add a matching
