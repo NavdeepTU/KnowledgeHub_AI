@@ -12,6 +12,9 @@ class Settings(BaseSettings):
     chunk_overlap_chars: int = Field(default=200, ge=0)
     embedding_model_name: str = "all-MiniLM-L6-v2"
     chroma_persist_directory: Path = Path("chroma_db")
+    answer_model_name: str = "llama-3.1-8b-instant"
+    groq_api_key: str | None = None
+    conversation_directory: Path = Path("conversations")
 
     model_config = SettingsConfigDict(
         env_file=".env",

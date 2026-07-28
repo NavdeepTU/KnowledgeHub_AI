@@ -4,6 +4,7 @@ __pycache__/
 .env
 uploads/
 chroma_db/
+conversations/
 .DS_Store
 .pytest_cache/
 .idea/

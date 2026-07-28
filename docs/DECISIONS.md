@@ -460,3 +460,128 @@ localization or alternate formats (e.g. page numbers instead of
 character offsets) - fine for a single, internal-facing API today, but
 would need revisiting if citations are ever rendered directly to an
 end user or need format flexibility.
+
+---
+
+## Persist conversation history as question/answer text only, not the grounding chunks
+
+**Decision:** `ConversationTurn` (persisted per `conversation_id` as a
+JSON sidecar by `ConversationService`, same pattern as document
+records) stores only `question` and `answer` - not the `SearchResult`
+chunks that grounded that answer. `AnswerService.generate_answer`
+replays prior turns into the LLM call as alternating user/assistant
+messages; the current turn's chunks are the only context sent every
+time.
+
+**Alternatives considered:**
+
+- Persist and replay each historical turn's full retrieved context
+  alongside its question/answer, so the model can always re-examine
+  exactly what it saw originally.
+
+**Why chosen:** Chat completions are stateless - the whole conversation
+is resent on every call - so replaying every past turn's full context
+verbatim would make prompt size (and cost) grow with every follow-up
+question, for context that's usually no longer relevant to the current
+one. Question/answer text alone is enough for the model to track what's
+already been discussed, which is what conversational memory is
+actually for here.
+
+**Tradeoffs:** A follow-up that depends on re-reading old context
+verbatim (rather than trusting the model's own prior summary of it)
+won't have that context available - a real, accepted limitation,
+documented in `docs/PROJECT_STATUS.md`. The full source chunks are
+still returned in that turn's own `AskResponse.sources` at the time,
+so a client that wants to keep them can - they're just not
+automatically replayed into later LLM calls.
+
+---
+
+## Switch `AnswerService` from Claude (Anthropic) to Groq
+
+**Decision:** Rebuild `AnswerService` around Groq's official Python
+SDK (`groq`, OpenAI-compatible `chat.completions.create` shape) instead
+of Anthropic's, after building and testing the Claude version first.
+Default model: `llama-3.1-8b-instant`.
+
+**Context:** `AnswerService` was originally built against Claude Haiku
+4.5 via the official `anthropic` SDK - explicitly chosen with the
+developer over Sonnet/Opus for cost, given the task's low complexity.
+The key authenticated correctly, but the Anthropic account had no
+billing configured, so no real answer could be generated. This raised
+an explicit question: the developer already pays for a Claude
+Pro/Code subscription - does adding API billing on top make sense?
+
+**Alternatives considered:**
+
+- Add billing to the existing Anthropic account and keep the Claude
+  implementation - a few cents of real cost for realistic usage at this
+  scale, and zero rework since it was already built and tested.
+- Route generation through the same OpenAI account already used (and
+  since abandoned) for embeddings - rejected because that account's own
+  billing was never resolved either, so it wouldn't actually avoid
+  paying anything, and OpenAI generation + Anthropic elsewhere isn't
+  more "unified" than any other combination once embeddings are already
+  local and free.
+- A locally-hosted model via Ollama, mirroring the embeddings decision
+  exactly - rejected for this specific step: local LLMs are
+  meaningfully larger than the embedding model that already strained
+  this machine's disk, and grounded-answer generation with citation
+  formatting is more sensitive to model quality than embeddings were,
+  so a small local model was judged more likely to ignore instructions
+  or hallucinate beyond the given context.
+
+**Why chosen:** Groq hosts open-source models (Llama, etc.) with a
+genuinely free tier - no billing account needed at all, unlike the
+"pay a trivial amount" Claude option. Confirmed first, explicitly, that
+Claude Pro/Code subscription usage is entirely separate from API
+billing (same split as ChatGPT Plus vs. the OpenAI API) - there is no
+way to point API calls at a Pro/Code subscription's included usage, so
+"I already pay for Claude Code" doesn't reduce the cost of using the
+Claude API from a separate application. Given a genuinely free,
+hosted, no-signup-billing option existed for this specific task, it
+was chosen over paying anything.
+
+**Trade-offs:** `llama-3.1-8b-instant` is a much smaller, weaker model
+than Claude - answer quality and instruction-following (staying
+strictly grounded in context, consistent citation formatting) will be
+noticeably less reliable, in exchange for being genuinely free. Groq's
+free tier is also not a permanent guarantee the way self-hosting would
+be - it's a company's free tier that could tighten later, unlike
+Ollama's "free forever, your own hardware" option. The switch required
+real rework (rewriting message construction, response parsing, and all
+associated tests) since Groq's SDK is a materially different shape
+from Anthropic's - verified directly rather than assumed: system
+prompt lives inside `messages` (no top-level `system` param),
+`max_completion_tokens` instead of `max_tokens`, response text at
+`choices[0].message.content`, and no Anthropic-style `refusal` stop
+reason to check for.
+
+---
+
+## Normalize an empty-string API key to `None` in `AnswerService`
+
+**Decision:** `AnswerService.__init__` stores `api_key or None` instead
+of `api_key` as given, so an empty string is treated identically to a
+missing key.
+
+**Context:** Discovered while verifying the Groq switch against the
+real running app. `.env` had `GROQ_API_KEY=""` (an unfilled
+placeholder) at the time. `groq.Groq(api_key="")` does **not** trigger
+the SDK's own "the api_key client option must be set" check - that
+check only looks for `None` - so construction silently succeeds, and
+the failure only surfaces later, at request time, as a generic
+`groq.APIConnectionError: Connection error.` with no indication the
+real problem is a missing key. A non-empty (even invalid) key produces
+a clean `401 AuthenticationError` by contrast - confirmed by testing
+both directly.
+
+**Why chosen:** An empty string is exactly what an unfilled `.env`
+placeholder produces, so this is a realistic, likely-to-recur failure
+mode, not a hypothetical edge case - worth a one-line, well-contained
+fix at the one place `AnswerService` owns client construction, rather
+than trusting every caller to pass `None` correctly.
+
+**Tradeoffs:** None meaningful - this only changes behavior for an
+input (`""`) that was never meaningfully different from "no key" in
+the first place.

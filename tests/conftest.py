@@ -10,9 +10,11 @@ from pypdf import PdfWriter
 import app.api.documents as documents_module
 from app.core.config import settings
 from app.main import app
+from app.services.answer_service import AnswerService
+from app.services.conversation_service import ConversationService
 from app.services.embedding_service import EmbeddingService
 from app.services.vector_store_service import VectorStoreService
-from tests.fakes import fake_encoder
+from tests.fakes import FakeGroqClient, fake_encoder
 
 
 @pytest.fixture(autouse=True)
@@ -40,6 +42,34 @@ def isolated_vector_services(
     monkeypatch.setattr(documents_module, "vector_store_service", test_vector_store)
 
     return test_vector_store
+
+
+@pytest.fixture(autouse=True)
+def isolated_answer_service(monkeypatch: pytest.MonkeyPatch) -> FakeGroqClient:
+    """Replace the real Groq client with a fake one - no API key, no
+    network call, no cost - for every test that hits /documents/ask."""
+    fake_client = FakeGroqClient(response_text="This is a fake answer. [1]")
+    monkeypatch.setattr(
+        documents_module, "answer_service", AnswerService(client=fake_client)
+    )
+
+    return fake_client
+
+
+@pytest.fixture(autouse=True)
+def isolated_conversation_service(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> ConversationService:
+    """Redirect conversation history to a throwaway directory, same
+    reasoning as isolated_upload_directory."""
+    test_conversation_service = ConversationService(
+        storage_directory=tmp_path / "conversations_test"
+    )
+    monkeypatch.setattr(
+        documents_module, "conversation_service", test_conversation_service
+    )
+
+    return test_conversation_service
 
 
 @pytest.fixture()

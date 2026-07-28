@@ -91,3 +91,44 @@ class SearchResult(BaseModel):
 class SearchResponse(BaseModel):
     query: str
     results: list[SearchResult]
+
+
+class AskRequest(BaseModel):
+    question: str = Field(min_length=1)
+    limit: int = Field(default=5, gt=0, le=50)
+    # Omit to start a new conversation - the response returns the ID to
+    # reuse for follow-up questions.
+    conversation_id: str | None = None
+
+
+class AskResponse(BaseModel):
+    """The generated answer, plus the exact chunks it was grounded in.
+
+    `sources` reuses SearchResult (including its `citation` field) so a
+    caller can verify the answer against the same chunks the model saw,
+    not just trust the generated text.
+    """
+
+    conversation_id: str
+    question: str
+    answer: str
+    sources: list[SearchResult]
+
+
+class ConversationTurn(BaseModel):
+    """One question/answer pair from a past turn in a conversation.
+
+    Only the question text and final answer are kept - not the retrieved
+    chunks that grounded that answer - so replaying history into later
+    Claude calls doesn't re-send every past turn's full context.
+    """
+
+    question: str
+    answer: str
+
+
+class ConversationRecord(BaseModel):
+    """The full persisted history for one conversation."""
+
+    conversation_id: str
+    turns: list[ConversationTurn]

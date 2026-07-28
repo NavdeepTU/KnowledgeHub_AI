@@ -26,6 +26,8 @@ flowchart TD
         chunking["chunking_service.py<br/>chunk_text"]
         embedding["embedding_service.py<br/>embed_texts"]
         vectorstore["vector_store_service.py<br/>upsert_chunks"]
+        answer["answer_service.py<br/>generate_answer"]
+        conversation["conversation_service.py<br/>load_history / append_turn"]
     end
 
     subgraph Core["app/core"]
@@ -38,12 +40,16 @@ flowchart TD
     documents --> chunking
     documents --> embedding
     documents --> vectorstore
+    documents --> answer
+    documents --> conversation
     documents --> config
     documents --> logging_
     service --> logging_
     chunking --> logging_
     embedding --> logging_
     vectorstore --> logging_
+    answer --> logging_
+    conversation --> logging_
 ```
 
 **Why this split:**
@@ -146,6 +152,40 @@ formats that define one) -> actual parse. Cheap, client-controllable
 checks run first so obviously bad requests fail fast before any file I/O
 happens.
 
+## Request flow: `POST /documents/ask`
+
+```mermaid
+sequenceDiagram
+    participant Client
+    participant Router as documents.py
+    participant Conversation as ConversationService
+    participant Embedder as EmbeddingService
+    participant VectorStore as VectorStoreService
+    participant Answer as AnswerService
+    participant LLM as Groq API
+
+    Client->>Router: {question, limit, conversation_id?}
+    Router->>Router: conversation_id or generate a new one
+    Router->>Conversation: load_history(conversation_id)
+    Conversation-->>Router: list[ConversationTurn] (empty if new/unknown)
+    Router->>Embedder: embed_texts([question])
+    Router->>VectorStore: query_similar_chunks(embedding, limit)
+    VectorStore-->>Router: list[SearchResult]
+    Router->>Answer: generate_answer(question, chunks, history)
+    Answer->>Answer: build messages: [system, ...history pairs, current question+context]
+    Answer->>LLM: chat.completions.create(...)
+    LLM-->>Answer: generated answer text
+    Answer-->>Router: answer
+    Router->>Conversation: append_turn(conversation_id, question+answer)
+    Router-->>Client: AskResponse {conversation_id, question, answer, sources}
+```
+
+If `chunks` comes back empty, `AnswerService` returns a fixed
+"no relevant documents" message without calling the LLM at all - no
+cost, no round trip, for a question nothing in the vector store can
+answer. A failed LLM call raises before `append_turn` runs, so a failed
+turn is never persisted as if it happened.
+
 ## Current constraints (by design, for now)
 
 - **Storage:** local filesystem under `uploads/`, filenames are generated
@@ -211,17 +251,35 @@ happens.
   `VectorStoreService` from data already being stored, at query time.
   No new service or dependency - purely a formatting step over
   existing fields.
+- **Answer generation:** `AnswerService` wraps Groq's official SDK
+  (`groq.Groq`, OpenAI-style `chat.completions.create` shape),
+  constructed lazily like `EmbeddingService` - unlike Anthropic's
+  client, Groq's raises immediately if no key is available anywhere,
+  so laziness here specifically protects app startup, not just import
+  overhead. Builds a `messages` array (system prompt + replayed history
+  + current question/context) and asks the model to answer using only
+  the numbered context blocks, citing block numbers. An empty-string
+  API key is normalized to `None` before construction - passing `""`
+  through as-is bypasses the SDK's own "key not set" check and fails
+  later with a confusing connection error instead of a clear one.
+- **Conversation history:** `ConversationService` persists each turn
+  (question + final answer text only, not the grounding chunks) as a
+  JSON sidecar per `conversation_id` - same pattern as document
+  records, no database. A missing file means a new conversation; a
+  corrupted one degrades to empty history rather than failing the
+  request. History is replayed into `AnswerService` as alternating
+  user/assistant messages on every call, since chat completions are
+  stateless - there's no server-side session to attach to.
 
 ## Where this goes next
 
 Per `docs/ROADMAP.md`, this closes out Phase 2 (Document Processing)
-and Phase 3 (Retrieval) entirely - embedding, storage, search, and
-citations all exist end-to-end. What's left:
+and Phase 3 (Retrieval) entirely, and Phase 4 (AI Chat) has its first
+two items done - RAG and conversation history. What's left:
 
-1. **RAG / agents (Phase 4)** - use an LLM to generate an actual answer
-   from the chunks `/documents/search` already returns, with citations
-   attached; likely LangGraph for orchestration once it grows beyond a
-   single call-and-respond loop.
+1. **Streaming responses (Phase 4)** - `/documents/ask` currently waits
+   for the full answer before returning; no code exists yet for
+   streaming partial output back to the client.
 2. **A real database** - once something needs to query or list across
    documents rather than looking up one JSON file at a time, the sidecar
    files get replaced by a database and likely a `repositories/` layer.

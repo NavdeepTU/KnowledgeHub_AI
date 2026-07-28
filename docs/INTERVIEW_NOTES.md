@@ -323,6 +323,83 @@ requirement, so building for it would be speculative.
 
 ---
 
+## "How does conversation history work without a database?"
+
+*(from: Persist conversation history as question/answer text only)*
+
+Each conversation gets its own JSON file, keyed by a conversation ID —
+the same sidecar pattern I already used for document records. Every
+turn appends the question and final answer to that file. Since the
+chat API itself is stateless, I rebuild the message list from scratch
+on every call: system prompt, then each past turn as a user/assistant
+pair, then the current question with its retrieved context. The
+deliberate part is what I don't persist — I only keep the question and
+answer text, not the chunks that grounded that answer, so a ten-turn
+conversation doesn't mean resending ten turns' worth of retrieved
+context on every single call.
+
+**Follow-up to expect:** "What breaks with that tradeoff?" — A
+follow-up that depends on the model re-reading old context verbatim,
+rather than trusting its own prior answer about it, won't have that
+context available anymore. I accepted that explicitly rather than
+solving it, since the cost of the alternative (unbounded prompt growth
+per conversation) was worse for this project's scale.
+
+---
+
+## "You built this on Claude, then switched to Groq — walk me through why."
+
+*(from: Switch AnswerService from Claude (Anthropic) to Groq)*
+
+I built and fully tested the answer-generation service against Claude
+Haiku first — deliberately the cheapest tier for a task this simple.
+The key worked, but the Anthropic account had no billing configured,
+so I couldn't actually generate a real answer. That led to a real
+conversation about cost: I already pay for a Claude Pro subscription,
+so I asked directly whether that covered API usage too. It doesn't —
+subscription usage and API billing are completely separate at
+Anthropic, the same split as ChatGPT Plus versus the OpenAI API. Once
+I confirmed there was no way around paying for API access specifically,
+I looked at genuinely free alternatives and picked Groq, which hosts
+open-source models on a real free tier with no billing account needed
+at all.
+
+**Follow-up to expect:** "What did switching actually cost you,
+engineering-wise?" — More than the model name. Groq's SDK is
+OpenAI-shaped, not Anthropic-shaped: the system prompt goes inside the
+messages array instead of a separate parameter, the response text is
+in a different place, and Anthropic's `refusal` stop reason has no
+equivalent — I verified the actual SDK types directly rather than
+guessing, and rewrote the message construction, response parsing, and
+every test around the real shape.
+
+---
+
+## "Tell me about a real bug you found in this project."
+
+*(from: Normalize an empty-string API key to None in AnswerService)*
+
+While verifying the Groq switch against the real app, I hit a
+confusing `APIConnectionError` instead of an authentication error. I
+tracked it down by testing the SDK directly with three inputs: no key,
+an empty string, and a real-but-invalid key. `None` correctly raised
+the SDK's own "key not set" error immediately; a real invalid key
+correctly produced a clean 401; but an empty string slipped past the
+SDK's check entirely — that check only looks for `None` — and only
+failed later, confusingly, when it tried to actually connect. An empty
+string is exactly what an unfilled `.env` placeholder produces, so
+this wasn't a hypothetical — it's what I'd actually just created
+myself. The fix was one line: normalize `""` to `None` before it ever
+reaches the SDK.
+
+**Follow-up to expect:** "How did you actually diagnose it, not just
+fix it?" — I didn't guess from the stack trace. I reproduced the exact
+failure in isolation with a two-line script, then changed one input at
+a time (`None`, then a real bad key) until I could see exactly which
+input produced the confusing error and which produced a clean one.
+
+---
+
 ## How to extend this file
 
 After a session that adds an entry to `docs/DECISIONS.md`, add a matching

@@ -4,6 +4,7 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from app.services.vector_store_service import VectorStoreService
+from tests.fakes import FakeGroqClient
 
 
 def test_health_check(client: TestClient) -> None:
@@ -518,6 +519,99 @@ def test_search_rejects_empty_query(client: TestClient) -> None:
 def test_search_rejects_limit_out_of_range(client: TestClient) -> None:
     response = client.post(
         "/documents/search", json={"query": "test", "limit": 100}
+    )
+
+    assert response.status_code == 422
+
+
+def test_ask_returns_answer_grounded_in_uploaded_document(
+    client: TestClient, isolated_answer_service: FakeGroqClient
+) -> None:
+    client.post(
+        "/documents/upload",
+        files={"file": ("notes.txt", b"knowledge base search test", "text/plain")},
+    )
+
+    response = client.post("/documents/ask", json={"question": "search test"})
+
+    assert response.status_code == 200
+
+    body = response.json()
+    assert body["question"] == "search test"
+    assert body["answer"] == "This is a fake answer. [1]"
+    assert len(body["sources"]) == 1
+    assert body["sources"][0]["text"] == "knowledge base search test"
+    assert body["conversation_id"]
+
+
+def test_ask_on_empty_vector_store_skips_the_model_call(
+    client: TestClient, isolated_answer_service: FakeGroqClient
+) -> None:
+    response = client.post("/documents/ask", json={"question": "anything"})
+
+    assert response.status_code == 200
+
+    body = response.json()
+    assert body["sources"] == []
+    assert "don't have any relevant documents" in body["answer"].lower()
+    assert isolated_answer_service.last_call is None
+
+
+def test_ask_without_conversation_id_starts_a_new_conversation_each_time(
+    client: TestClient,
+) -> None:
+    first = client.post("/documents/ask", json={"question": "one"})
+    second = client.post("/documents/ask", json={"question": "two"})
+
+    assert first.json()["conversation_id"] != second.json()["conversation_id"]
+
+
+def test_ask_with_conversation_id_replays_history_to_the_model(
+    client: TestClient, isolated_answer_service: FakeGroqClient
+) -> None:
+    client.post(
+        "/documents/upload",
+        files={"file": ("notes.txt", b"knowledge base search test", "text/plain")},
+    )
+
+    first = client.post("/documents/ask", json={"question": "search test"})
+    conversation_id = first.json()["conversation_id"]
+
+    second = client.post(
+        "/documents/ask",
+        json={"question": "follow up", "conversation_id": conversation_id},
+    )
+
+    assert second.status_code == 200
+    assert second.json()["conversation_id"] == conversation_id
+
+    messages = isolated_answer_service.last_call["messages"]
+    assert len(messages) == 4
+    assert messages[0]["role"] == "system"
+    assert messages[1] == {"role": "user", "content": "search test"}
+    assert messages[2] == {"role": "assistant", "content": "This is a fake answer. [1]"}
+    assert "follow up" in messages[3]["content"]
+
+
+def test_ask_with_unknown_conversation_id_still_answers(client: TestClient) -> None:
+    response = client.post(
+        "/documents/ask",
+        json={"question": "anything", "conversation_id": "does-not-exist-yet"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["conversation_id"] == "does-not-exist-yet"
+
+
+def test_ask_rejects_empty_question(client: TestClient) -> None:
+    response = client.post("/documents/ask", json={"question": ""})
+
+    assert response.status_code == 422
+
+
+def test_ask_rejects_limit_out_of_range(client: TestClient) -> None:
+    response = client.post(
+        "/documents/ask", json={"question": "test", "limit": 100}
     )
 
     assert response.status_code == 422

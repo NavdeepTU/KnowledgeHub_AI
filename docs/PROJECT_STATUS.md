@@ -2,12 +2,12 @@
 
 ## Current milestone
 
-Phase 3 complete: chunks are embedded locally (`sentence-transformers`)
-and stored in ChromaDB during upload, `POST /documents/search` reads
-them back, and each result carries a human-readable citation. The full
-pipeline - upload, extract, chunk, embed, store, retrieve, cite - has
-been verified end-to-end against the real running app with no external
-API dependency. Every item on `docs/ROADMAP.md` Phase 3 is done.
+Phase 4 (AI Chat) kickoff: `POST /documents/ask` generates an actual
+answer from retrieved chunks via Groq's free-tier API (open-source
+`llama-3.1-8b-instant`), with citations and multi-turn conversation
+history. Phase 3 (Retrieval) remains fully complete underneath it -
+chunks are embedded locally, stored in ChromaDB, and retrievable via
+`/documents/search` with no external API dependency at all.
 
 ## Completed
 
@@ -148,11 +148,49 @@ API dependency. Every item on `docs/ROADMAP.md` Phase 3 is done.
   test plus an existing search test extended to assert the format - 51
   tests total, all passing. This closes out every item on
   `docs/ROADMAP.md` Phase 3
+- Added `AnswerService` and `POST /documents/ask`: retrieves chunks
+  exactly like `/search`, then asks an LLM to answer using only that
+  context, citing block numbers. Built first against Claude (Haiku 4.5,
+  official `anthropic` SDK) - verified the key authenticated correctly,
+  but the Anthropic account had no billing configured, so no real
+  answer could be generated
+- Added conversation history: `AskRequest`/`AskResponse` gained an
+  optional `conversation_id`; a new `ConversationService` persists each
+  turn (question + answer only, not the grounding chunks) as a JSON
+  sidecar, same pattern as document records - no database. Prior turns
+  are replayed as alternating user/assistant messages on every call,
+  since the underlying chat API is stateless. 9 new tests (5 service,
+  2 `AnswerService` history tests, 2 more `/ask` integration tests) -
+  70 tests total, all passing at this point
+- Switched `AnswerService` from Anthropic to Groq (free tier, hosts
+  open-source models) after weighing the "I already pay for Claude
+  Code" question explicitly with the developer - Claude Pro/Code
+  subscriptions don't cover API billing, so paying twice for the same
+  underlying models didn't make sense once a genuinely free option
+  existed for this task. Rewrote around Groq's actual (OpenAI-style)
+  SDK shape - verified directly rather than assumed: system prompt
+  inside `messages`, `max_completion_tokens`, `choices[0].message.content`,
+  no Anthropic-style `refusal` stop reason. Removed `anthropic` and its
+  orphaned transitive deps entirely
+- Found and fixed a real bug during verification: passing an empty
+  string as the API key (what an unfilled `.env` placeholder produces)
+  made the Groq SDK skip its own "key not set" check and fail later
+  with a confusing `APIConnectionError` instead of a clear error.
+  `AnswerService` now normalizes `""` to `None`. 70 tests total, all
+  passing after the Groq switch (one Anthropic-specific refusal test
+  removed, one empty-key regression test added)
+- Verified a real, successful answer end-to-end for the first time:
+  uploaded a document, asked a question, got a correct answer with a
+  `[1]` citation back from the real Groq API - then asked a follow-up
+  in the same conversation and confirmed it correctly used the
+  replayed history to answer without repeating the original context.
+  Confirmed the conversation sidecar persisted both turns correctly
 
 ## Work in progress
 
-Nothing in progress - Phase 3 is fully complete and verified. See
-"Next likely milestone" below.
+Nothing in progress - Phase 4's RAG and conversation-history items are
+both complete and verified against the real running app with a real
+answer. See "Next likely milestone" below.
 
 ## Current limitations
 
@@ -183,11 +221,20 @@ Nothing in progress - Phase 3 is fully complete and verified. See
 - `starlette.testclient` emits a deprecation warning about `httpx` in favor
   of an `httpx2` package in the currently installed Starlette version; not
   addressed yet, tests are unaffected
+- Conversation history only replays question/answer text, not the
+  chunks that grounded earlier answers - a follow-up that depends on
+  re-reading old context verbatim (rather than the model's summary of
+  it) won't have that context available
+- `llama-3.1-8b-instant` is a much smaller, weaker model than Claude or
+  GPT-tier models - answer quality and instruction-following (staying
+  strictly grounded in context, consistent citation formatting) will be
+  noticeably less reliable, in exchange for being genuinely free
+- No streaming responses yet - `/documents/ask` waits for the full
+  answer before returning
 
 ## Next likely milestone
 
-Phase 3 (Retrieval) is done. The natural next milestone is Phase 4
-(AI Chat): use an LLM to generate an actual answer from the chunks
-`/documents/search` already returns, with citations attached - the
-first real RAG loop, on top of retrieval infrastructure that's now
-fully built and verified.
+RAG and conversation history (Phase 4's first two items) are both done
+and verified with real answers. The next roadmap item is streaming
+responses - `/documents/ask` currently waits for the full answer
+before returning anything to the client.

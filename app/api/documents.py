@@ -1,17 +1,23 @@
 import logging
 from pathlib import Path
+from uuid import uuid4
 
 from fastapi import APIRouter, File, HTTPException, UploadFile, status
 
 from app.core.config import settings
 from app.schemas.document import (
+    AskRequest,
+    AskResponse,
+    ConversationTurn,
     DocumentRecord,
     DocumentUploadResponse,
     IngestionStatus,
     SearchRequest,
     SearchResponse,
 )
+from app.services.answer_service import AnswerService
 from app.services.chunking_service import ChunkingService
+from app.services.conversation_service import ConversationService
 from app.services.document_service import SUPPORTED_FORMATS, DocumentService
 from app.services.embedding_service import EmbeddingService
 from app.services.vector_store_service import VectorStoreService
@@ -29,6 +35,13 @@ chunking_service = ChunkingService()
 embedding_service = EmbeddingService(model_name=settings.embedding_model_name)
 vector_store_service = VectorStoreService(
     persist_directory=settings.chroma_persist_directory,
+)
+answer_service = AnswerService(
+    model_name=settings.answer_model_name,
+    api_key=settings.groq_api_key,
+)
+conversation_service = ConversationService(
+    storage_directory=settings.conversation_directory,
 )
 
 
@@ -304,4 +317,63 @@ async def search_documents(request: SearchRequest) -> SearchResponse:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="An unexpected error occurred while searching.",
+        ) from exc
+
+
+@router.post("/ask", response_model=AskResponse)
+async def ask_question(request: AskRequest) -> AskResponse:
+    """
+    Answer a question grounded in the most similar stored chunks.
+
+    Retrieval works exactly like /search (embed the question, query the
+    vector store). Pass the conversation_id from a previous response to
+    continue that conversation - prior question/answer text is replayed
+    into the Claude call so follow-up questions resolve correctly; omit
+    it to start a new conversation.
+    """
+    logger.info(
+        "Ask request received | question=%s | limit=%s | conversation_id=%s",
+        request.question,
+        request.limit,
+        request.conversation_id,
+    )
+
+    try:
+        conversation_id = request.conversation_id or str(uuid4())
+        history = conversation_service.load_history(conversation_id)
+
+        query_embedding = embedding_service.embed_texts([request.question])[0]
+
+        chunks = vector_store_service.query_similar_chunks(
+            query_embedding,
+            limit=request.limit,
+        )
+
+        answer = answer_service.generate_answer(request.question, chunks, history=history)
+
+        conversation_service.append_turn(
+            conversation_id,
+            ConversationTurn(question=request.question, answer=answer),
+        )
+
+        logger.info(
+            "Ask completed | question=%s | conversation_id=%s | sources=%s",
+            request.question,
+            conversation_id,
+            len(chunks),
+        )
+
+        return AskResponse(
+            conversation_id=conversation_id,
+            question=request.question,
+            answer=answer,
+            sources=chunks,
+        )
+
+    except Exception as exc:
+        logger.exception("Ask failed | question=%s", request.question)
+
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An unexpected error occurred while answering the question.",
         ) from exc
