@@ -2,9 +2,9 @@
 
 ## Current milestone
 
-Persisting extracted text (complete). Next milestone (multi-format
-upload support, starting with TXT/Markdown) proposed but not yet
-started - see below.
+Multi-format upload support, phase 1 (complete). PDF, TXT, and Markdown
+are all supported through a shared dispatcher. Next milestone (DOCX)
+proposed but not yet started - see below.
 
 ## Completed
 
@@ -43,9 +43,20 @@ started - see below.
   `DocumentService.persist_metadata`; covered by 2 new tests (sidecar
   written on success, no sidecar left behind on failure)
 - `docs/ROADMAP.md` Phase 2 broadened to target DOCX, TXT/Markdown, PPTX,
-  and HTML uploads (decision only - not implemented yet)
+  and HTML uploads
 - Added `/next-task` (lightweight "what's next" recommendation, callable
   mid-session) and `/commit` (review-diff-then-commit workflow) commands
+- `DocumentService.extract_text` refactored into a per-format dispatcher
+  (extension -> validator + extractor); TXT and Markdown are now
+  supported alongside PDF, with no new dependencies. `save_pdf` renamed
+  to `save_document` and now preserves the real uploaded extension
+  instead of hardcoding `.pdf`. 3 new tests (TXT success, Markdown
+  success, non-UTF-8 rejection) - 13 tests total, all passing
+- `CLAUDE.md` updated: terminal output should default to simple, plain
+  language, going technical only when explicitly asked
+- Added `/interview-question` and `/interview-question-recent` commands:
+  generate a random (or most-recent-feature) interview question grounded
+  in the actual project, with a concise (~100-150 word) technical answer
 
 ## Work in progress
 
@@ -55,8 +66,11 @@ None.
 
 - Uploaded files are read fully into memory
 - Files are stored on the local filesystem
-- Only PDF files are supported (DOCX/TXT/Markdown/PPTX/HTML targeted in
-  the roadmap but not yet built)
+- PDF, TXT, and Markdown are supported; DOCX/PPTX/HTML are targeted in
+  the roadmap but not yet built
+- Text-format uploads have no signature check (none exist reliably for
+  plain text) - a mislabeled binary file that happens to decode as UTF-8
+  would be silently accepted
 - Persisted as flat JSON files, not a queryable database - fine for one
   document at a time, but there's no way to search or list across
   documents yet
@@ -68,8 +82,8 @@ None.
 
 ## Next likely milestone
 
-Refactor `DocumentService.extract_text` into a per-format dispatcher
-(extension -> validator + extractor) and add TXT/Markdown support through
-it - no new dependencies required, since both formats are just "decode
-bytes as UTF-8." This stands up the multi-format architecture that DOCX,
-PPTX, and HTML will build on next.
+Add DOCX support through the existing dispatcher: one new
+`SUPPORTED_FORMATS` entry (content type, ZIP signature `PK\x03\x04`), one
+new extractor using `python-docx` (a new dependency), and tests mirroring
+the TXT/Markdown pattern. The dispatcher groundwork already exists, so
+this should be a small, self-contained addition.

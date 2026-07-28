@@ -22,7 +22,7 @@ flowchart TD
     end
 
     subgraph Services["app/services"]
-        service["document_service.py<br/>save_pdf / extract_text / persist_metadata"]
+        service["document_service.py<br/>save_document / extract_text (dispatcher) / persist_metadata"]
     end
 
     subgraph Core["app/core"]
@@ -62,17 +62,18 @@ sequenceDiagram
     participant Client
     participant Router as documents.py
     participant Service as DocumentService
-    participant PyPDF as pypdf
+    participant Extractor as format extractor
 
     Client->>Router: multipart upload
-    Router->>Router: validate filename, extension, MIME type
-    Router->>Router: read bytes, validate size, %PDF signature
-    Router->>Service: save_pdf(file, upload_directory)
-    Service-->>Router: saved file path (UUID-named)
+    Router->>Router: look up extension in SUPPORTED_FORMATS
+    Router->>Router: validate MIME type, size, signature (if the format defines one)
+    Router->>Service: save_document(file, upload_directory, extension)
+    Service-->>Router: saved file path (UUID-named, real extension preserved)
     Router->>Service: extract_text(path)
-    Service->>PyPDF: PdfReader(path)
-    PyPDF-->>Service: pages, is_encrypted
-    alt encrypted or unreadable
+    Service->>Service: look up extractor by extension
+    Service->>Extractor: _extract_pdf(path) or _extract_plain_text(path)
+    Extractor-->>Service: (text, page_count)
+    alt unsupported / unreadable / undecodable
         Service-->>Router: raise ValueError
         Router->>Router: delete saved file
         Router-->>Client: 422
@@ -85,9 +86,10 @@ sequenceDiagram
 ```
 
 Validation is intentionally layered defense-in-depth, in this order:
-extension -> MIME type -> emptiness -> size -> file signature -> actual
-parse. Cheap, client-controllable checks run first so obviously bad
-requests fail fast before any file I/O happens.
+extension -> MIME type -> emptiness -> size -> file signature (only for
+formats that define one) -> actual parse. Cheap, client-controllable
+checks run first so obviously bad requests fail fast before any file I/O
+happens.
 
 ## Current constraints (by design, for now)
 
@@ -100,18 +102,22 @@ requests fail fast before any file I/O happens.
   file (`uploads/<document_id>.json`) via `DocumentRecord` +
   `DocumentService.persist_metadata`. This is deliberately not a database
   yet - there's nothing to query across documents until Phase 3 needs it.
-- **Single format:** PDF only. Adding DOCX/TXT/PPTX/HTML support should
-  extend `DocumentService` (a per-format dispatcher), not branch inside
-  the router.
+- **Formats:** PDF, TXT, and Markdown are supported via a registry
+  (`SUPPORTED_FORMATS`, a `dict[str, DocumentFormat]`) that both the
+  router (for validation) and `DocumentService` (for extraction) read
+  from. Adding DOCX/PPTX/HTML means adding one registry entry and one
+  extractor method - the router's validation logic doesn't grow per
+  format. Text formats have no signature check, since plain text has no
+  reliable magic bytes; a mislabeled file that happens to decode as
+  UTF-8 would currently be silently accepted.
 
 ## Where this goes next
 
 Per `docs/ROADMAP.md`, the next architectural additions (each will update
 this file when they land) are:
 
-1. **Multi-format support** - a per-format dispatcher in `DocumentService`
-   for DOCX, TXT/Markdown, PPTX, and HTML, replacing the current
-   PDF-only extraction path.
+1. **More formats** - DOCX, PPTX, and HTML through the same
+   `SUPPORTED_FORMATS` registry and extractor dispatch already in place.
 2. **A real database** - once something needs to query or list across
    documents rather than looking up one JSON file at a time, the sidecar
    files get replaced by a database and likely a `repositories/` layer.

@@ -139,3 +139,36 @@ indexed/queryable storage.
 mention X" means scanning every JSON file), no concurrent-write safety,
 and this will need a genuine migration - not just a refactor - once a
 database is introduced.
+
+---
+
+## Use a format registry + dispatcher instead of if/elif for multi-format uploads
+
+**Decision:** Add a `DocumentFormat` dataclass and a `SUPPORTED_FORMATS`
+registry (`dict[str, DocumentFormat]`) that both the router (extension,
+MIME type, and signature validation) and `DocumentService` (a
+`dict[str, Callable]` mapping extension to extractor method) read from,
+replacing the PDF-only validation and extraction logic.
+
+**Alternatives considered:**
+
+- Keep adding `if/elif` branches for each new extension directly in the
+  router and in `extract_text`.
+- A full class-per-format hierarchy (e.g. an abstract `DocumentHandler`
+  base class with a subclass per format).
+
+**Why chosen:** With PDF-only, `if/elif` was fine. But `docs/ROADMAP.md`
+already commits to DOCX, PPTX, and HTML next, meaning the branch count
+in three separate places (extension check, MIME check, extraction) was
+only going to grow. A registry turns "add a format" into "add one dict
+entry and one method" without touching the router's validation logic at
+all. A full class hierarchy was rejected as more structure than three to
+five formats justify - a dict of small dataclasses and bound methods
+gives the same extensibility without new abstractions to learn.
+
+**Tradeoffs:** Text formats (`.txt`, `.md`) have no signature check,
+because plain text has no reliable magic bytes - a mislabeled binary
+file that happens to decode as valid UTF-8 would be silently accepted.
+`page_count` is hardcoded to 1 for non-paginated formats, which is a
+simplification that may need revisiting once a format with a real
+pagination concept (e.g. PPTX slides) is added.

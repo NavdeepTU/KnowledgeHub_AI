@@ -128,6 +128,27 @@ time for the database migration, not a reason to build it preemptively.
 
 ---
 
+## "You went from PDF-only to supporting multiple formats — how did you design that extension point?"
+
+*(from: Use a format registry + dispatcher instead of if/elif for multi-format uploads)*
+
+I pulled the per-format details — allowed extension, accepted MIME
+types, an optional signature — into a small registry, and extraction
+into a dict mapping extension to handler method. Both the router's
+validation and the service's extraction now read from the same source of
+truth instead of branching separately. I did this now rather than
+earlier because the roadmap already commits to three more formats next;
+with just PDF, a simple if-statement would've been the right call — the
+registry earns its keep specifically because the branch count was about
+to grow in three places at once.
+
+**Follow-up to expect:** "What's a gap in this design?" — Text formats
+have no signature check, because plain text has no reliable magic bytes.
+A renamed binary file that happens to decode as valid UTF-8 would be
+silently accepted today — a known, accepted gap, not an oversight.
+
+---
+
 ## How to extend this file
 
 After a session that adds an entry to `docs/DECISIONS.md`, add a matching
