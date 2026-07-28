@@ -9,7 +9,7 @@
 
 ## Phase 2 - Document Processing
 - PDF extraction
-- DOCX support
+- Additional format support: DOCX, TXT/Markdown, PPTX, HTML
 - Chunking
 - Metadata extraction
 
