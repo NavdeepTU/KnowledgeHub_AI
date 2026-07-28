@@ -5,7 +5,7 @@ from fastapi import APIRouter, File, HTTPException, UploadFile, status
 
 from app.core.config import settings
 from app.schemas.document import DocumentRecord, DocumentUploadResponse, IngestionStatus
-from app.services.document_service import DocumentService
+from app.services.document_service import SUPPORTED_FORMATS, DocumentService
 
 
 logger = logging.getLogger(__name__)
@@ -27,15 +27,16 @@ async def upload_document(
     file: UploadFile = File(...),
 ) -> DocumentUploadResponse:
     """
-    Upload and process a PDF document.
+    Upload and process a document.
 
     Current flow:
-    1. Validate filename and file type.
+    1. Validate filename and file type against the supported formats.
     2. Read the file into memory.
-    3. Validate its size and PDF signature.
+    3. Validate its size and (where the format defines one) its signature.
     4. Save it locally.
     5. Extract text.
-    6. Return processing details.
+    6. Persist extracted text and metadata.
+    7. Return processing details.
     """
     logger.info(
         "Upload request received | filename=%s | content_type=%s",
@@ -52,21 +53,28 @@ async def upload_document(
             detail="A filename is required.",
         )
 
-    # Validate the extension separately from the MIME type.
-    if not file.filename.lower().endswith(".pdf"):
+    # Validate the extension against the set of formats we know how to
+    # handle before looking at anything else about the file.
+    extension = Path(file.filename).suffix.lower()
+    document_format = SUPPORTED_FORMATS.get(extension)
+
+    if document_format is None:
         logger.warning(
-            "Upload rejected because extension is invalid | filename=%s",
+            "Upload rejected because extension is unsupported | filename=%s",
             file.filename,
         )
 
         raise HTTPException(
             status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
-            detail="Only files with a .pdf extension are supported.",
+            detail=(
+                "Unsupported file extension. Supported extensions: "
+                f"{', '.join(sorted(SUPPORTED_FORMATS))}."
+            ),
         )
 
     # MIME type is useful but cannot be fully trusted because it is
     # supplied by the client.
-    if file.content_type != "application/pdf":
+    if file.content_type not in document_format.allowed_content_types:
         logger.warning(
             "Upload rejected because MIME type is invalid | content_type=%s",
             file.content_type,
@@ -74,7 +82,10 @@ async def upload_document(
 
         raise HTTPException(
             status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
-            detail="Only PDF files are supported.",
+            detail=(
+                f"Unsupported content type for {extension} uploads. "
+                f"Expected one of: {', '.join(sorted(document_format.allowed_content_types))}."
+            ),
         )
 
     # The current implementation reads the full file into memory.
@@ -110,17 +121,19 @@ async def upload_document(
             ),
         )
 
-    # Real PDF files normally begin with the bytes %PDF.
-    # This check prevents renamed text or image files from being accepted.
-    if not content.startswith(b"%PDF"):
+    # Only some formats have magic bytes reliable enough to check (PDF
+    # does; plain text formats don't, so this is skipped for them).
+    if document_format.signature is not None and not content.startswith(
+        document_format.signature
+    ):
         logger.warning(
-            "Upload rejected because PDF signature is missing | filename=%s",
+            "Upload rejected because file signature is invalid | filename=%s",
             file.filename,
         )
 
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail="The uploaded file does not appear to be a valid PDF.",
+            detail=f"The uploaded file does not appear to be a valid {extension} file.",
         )
 
     # Reset the internal file pointer because the file has already been read.
@@ -129,9 +142,10 @@ async def upload_document(
     saved_path: Path | None = None
 
     try:
-        saved_path = await document_service.save_pdf(
+        saved_path = await document_service.save_document(
             file=file,
             upload_directory=settings.upload_directory,
+            extension=extension,
         )
 
         extracted_text, page_count = document_service.extract_text(
@@ -202,5 +216,5 @@ async def upload_document(
 
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="An unexpected error occurred while processing the PDF.",
+            detail="An unexpected error occurred while processing the file.",
         ) from exc

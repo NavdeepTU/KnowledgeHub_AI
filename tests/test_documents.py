@@ -64,7 +64,7 @@ def test_upload_failure_does_not_persist_metadata(
 def test_upload_rejects_invalid_extension(client: TestClient, valid_pdf_bytes: bytes) -> None:
     response = client.post(
         "/documents/upload",
-        files={"file": ("document.txt", valid_pdf_bytes, "application/pdf")},
+        files={"file": ("document.exe", valid_pdf_bytes, "application/pdf")},
     )
 
     assert response.status_code == 415
@@ -78,7 +78,7 @@ def test_upload_rejects_invalid_mime_type(client: TestClient, valid_pdf_bytes: b
     )
 
     assert response.status_code == 415
-    assert "PDF" in response.json()["detail"]
+    assert "pdf" in response.json()["detail"].lower()
 
 
 def test_upload_rejects_empty_file(client: TestClient) -> None:
@@ -98,7 +98,7 @@ def test_upload_rejects_fake_pdf_signature(client: TestClient) -> None:
     )
 
     assert response.status_code == 422
-    assert "valid PDF" in response.json()["detail"]
+    assert "valid .pdf file" in response.json()["detail"]
 
 
 def test_upload_rejects_corrupted_pdf(client: TestClient, corrupted_pdf_bytes: bytes) -> None:
@@ -118,3 +118,49 @@ def test_upload_rejects_encrypted_pdf(client: TestClient, encrypted_pdf_bytes: b
 
     assert response.status_code == 422
     assert "Encrypted" in response.json()["detail"]
+
+
+def test_upload_accepts_txt_file(client: TestClient) -> None:
+    content = b"Plain text notes for a knowledge base."
+
+    response = client.post(
+        "/documents/upload",
+        files={"file": ("notes.txt", content, "text/plain")},
+    )
+
+    assert response.status_code == 201
+
+    body = response.json()
+    assert body["filename"] == "notes.txt"
+    assert body["page_count"] == 1
+    assert body["character_count"] == len(content)
+    assert body["status"] == "completed"
+
+
+def test_upload_accepts_markdown_file(client: TestClient) -> None:
+    content = b"# Heading\n\nSome **markdown** content."
+
+    response = client.post(
+        "/documents/upload",
+        files={"file": ("readme.md", content, "text/markdown")},
+    )
+
+    assert response.status_code == 201
+
+    body = response.json()
+    assert body["filename"] == "readme.md"
+    assert body["page_count"] == 1
+    assert body["character_count"] == len(content)
+    assert body["status"] == "completed"
+
+
+def test_upload_rejects_non_utf8_text_file(client: TestClient) -> None:
+    invalid_utf8 = b"\xff\xfe\x00\x01not valid utf-8"
+
+    response = client.post(
+        "/documents/upload",
+        files={"file": ("notes.txt", invalid_utf8, "text/plain")},
+    )
+
+    assert response.status_code == 422
+    assert "UTF-8" in response.json()["detail"]

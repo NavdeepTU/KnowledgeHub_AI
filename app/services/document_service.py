@@ -1,5 +1,7 @@
 import logging
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Callable
 from uuid import uuid4
 
 from fastapi import UploadFile
@@ -12,14 +14,52 @@ from app.schemas.document import DocumentRecord
 logger = logging.getLogger(__name__)
 
 
+@dataclass(frozen=True)
+class DocumentFormat:
+    """Metadata needed to validate an upload before it's saved or extracted."""
+
+    extension: str
+    allowed_content_types: frozenset[str]
+    # Magic bytes the file must start with, or None if the format has none
+    # reliable enough to check (e.g. plain text formats).
+    signature: bytes | None = None
+
+
+SUPPORTED_FORMATS: dict[str, DocumentFormat] = {
+    ".pdf": DocumentFormat(
+        extension=".pdf",
+        allowed_content_types=frozenset({"application/pdf"}),
+        signature=b"%PDF",
+    ),
+    ".txt": DocumentFormat(
+        extension=".txt",
+        allowed_content_types=frozenset({"text/plain"}),
+    ),
+    ".md": DocumentFormat(
+        extension=".md",
+        allowed_content_types=frozenset(
+            {"text/markdown", "text/x-markdown", "text/plain"}
+        ),
+    ),
+}
+
+
 class DocumentService:
-    async def save_pdf(
+    def __init__(self) -> None:
+        self._extractors: dict[str, Callable[[Path], tuple[str, int]]] = {
+            ".pdf": self._extract_pdf,
+            ".txt": self._extract_plain_text,
+            ".md": self._extract_plain_text,
+        }
+
+    async def save_document(
         self,
         file: UploadFile,
         upload_directory: Path,
+        extension: str,
     ) -> Path:
         """
-        Save the uploaded PDF using a generated ID.
+        Save the uploaded file using a generated ID, preserving its extension.
 
         We do not use the original filename because:
         - multiple users may upload files with the same name,
@@ -27,7 +67,7 @@ class DocumentService:
         - generated IDs make documents easier to track.
         """
         document_id = str(uuid4())
-        destination = upload_directory / f"{document_id}.pdf"
+        destination = upload_directory / f"{document_id}{extension}"
 
         content = await file.read()
         destination.write_bytes(content)
@@ -42,13 +82,22 @@ class DocumentService:
 
     def extract_text(self, file_path: Path) -> tuple[str, int]:
         """
-        Extract text from every page of the PDF.
+        Extract text from a saved file, dispatching by its extension.
 
         Returns:
             A tuple containing:
-            - combined text from all pages,
-            - total number of pages.
+            - the extracted text,
+            - a page count (1 for formats with no real pagination concept).
         """
+        extension = file_path.suffix.lower()
+        extractor = self._extractors.get(extension)
+
+        if extractor is None:
+            raise ValueError(f"Unsupported file extension: {extension}")
+
+        return extractor(file_path)
+
+    def _extract_pdf(self, file_path: Path) -> tuple[str, int]:
         try:
             reader = PdfReader(file_path)
 
@@ -83,6 +132,21 @@ class DocumentService:
             logger.exception("PDF parsing failed | path=%s", file_path)
             raise ValueError("The uploaded file is not a readable PDF.") from exc
 
+    def _extract_plain_text(self, file_path: Path) -> tuple[str, int]:
+        try:
+            text = file_path.read_text(encoding="utf-8")
+        except UnicodeDecodeError as exc:
+            logger.exception("Plain text decoding failed | path=%s", file_path)
+            raise ValueError("The uploaded file is not valid UTF-8 text.") from exc
+
+        logger.info(
+            "Text extraction completed | characters=%s",
+            len(text),
+        )
+
+        # Plain text formats have no real pagination concept.
+        return text, 1
+
     def persist_metadata(
         self,
         record: DocumentRecord,
@@ -90,7 +154,7 @@ class DocumentService:
     ) -> Path:
         """
         Persist a document's extracted text and metadata as a JSON sidecar
-        file next to its saved PDF, named after the same document ID.
+        file next to its saved file, named after the same document ID.
         """
         destination = upload_directory / f"{record.document_id}.json"
         destination.write_text(record.model_dump_json(indent=2))
