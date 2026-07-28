@@ -149,3 +149,5 @@ Always end a coding session with:
 
 - `/start-session` - read project docs and propose the smallest useful task for this session.
 - `/end-session` - update project documentation based on this session's actual changes.
+- `/next-task` - lighter-weight, callable mid-session: recommend the single best next task without the full start-session ritual.
+- `/commit` - commit currently uncommitted changes with an auto-generated summary message; running it is the explicit request to commit.
