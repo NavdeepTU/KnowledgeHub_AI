@@ -4,6 +4,7 @@ from pathlib import Path
 import pytest
 from docx import Document as DocxDocument
 from fastapi.testclient import TestClient
+from pptx import Presentation
 from pypdf import PdfWriter
 
 from app.core.config import settings
@@ -67,3 +68,27 @@ def valid_docx_bytes() -> bytes:
 def corrupted_docx_bytes() -> bytes:
     """Bytes with a valid ZIP signature but no parsable DOCX structure."""
     return b"PK\x03\x04" + b"this is not a real docx body" * 20
+
+
+@pytest.fixture()
+def valid_pptx_bytes() -> bytes:
+    """A minimal two-slide presentation, built at test time."""
+    presentation = Presentation()
+    layout = presentation.slide_layouts[1]
+
+    slide_one = presentation.slides.add_slide(layout)
+    slide_one.shapes.title.text = "Knowledge base test deck"
+    slide_one.placeholders[1].text = "First slide content"
+
+    slide_two = presentation.slides.add_slide(layout)
+    slide_two.shapes.title.text = "Second slide"
+
+    buffer = io.BytesIO()
+    presentation.save(buffer)
+    return buffer.getvalue()
+
+
+@pytest.fixture()
+def corrupted_pptx_bytes() -> bytes:
+    """Bytes with a valid ZIP signature but no parsable PPTX structure."""
+    return b"PK\x03\x04" + b"this is not a real pptx body" * 20

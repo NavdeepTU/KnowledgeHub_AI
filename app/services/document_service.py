@@ -5,8 +5,10 @@ from typing import Callable
 from uuid import uuid4
 
 from docx import Document as DocxDocument
-from docx.opc.exceptions import PackageNotFoundError
+from docx.opc.exceptions import PackageNotFoundError as DocxPackageNotFoundError
 from fastapi import UploadFile
+from pptx import Presentation
+from pptx.exc import PackageNotFoundError as PptxPackageNotFoundError
 from pypdf import PdfReader
 from pypdf.errors import PdfReadError
 
@@ -55,6 +57,17 @@ SUPPORTED_FORMATS: dict[str, DocumentFormat] = {
         # file header signature.
         signature=b"PK\x03\x04",
     ),
+    ".pptx": DocumentFormat(
+        extension=".pptx",
+        allowed_content_types=frozenset(
+            {
+                "application/vnd.openxmlformats-officedocument"
+                ".presentationml.presentation"
+            }
+        ),
+        # PPTX is also a ZIP-based Office format.
+        signature=b"PK\x03\x04",
+    ),
 }
 
 
@@ -65,6 +78,7 @@ class DocumentService:
             ".txt": self._extract_plain_text,
             ".md": self._extract_plain_text,
             ".docx": self._extract_docx,
+            ".pptx": self._extract_pptx,
         }
 
     async def save_document(
@@ -165,7 +179,7 @@ class DocumentService:
     def _extract_docx(self, file_path: Path) -> tuple[str, int]:
         try:
             document = DocxDocument(str(file_path))
-        except PackageNotFoundError as exc:
+        except DocxPackageNotFoundError as exc:
             logger.exception("DOCX parsing failed | path=%s", file_path)
             raise ValueError("The uploaded file is not a readable DOCX.") from exc
 
@@ -180,6 +194,42 @@ class DocumentService:
 
         # DOCX has no reliably accessible page count without rendering it.
         return text, 1
+
+    def _extract_pptx(self, file_path: Path) -> tuple[str, int]:
+        try:
+            presentation = Presentation(str(file_path))
+        except PptxPackageNotFoundError as exc:
+            logger.exception("PPTX parsing failed | path=%s", file_path)
+            raise ValueError("The uploaded file is not a readable PPTX.") from exc
+
+        slide_texts: list[str] = []
+
+        for slide_number, slide in enumerate(presentation.slides, start=1):
+            shape_texts = [
+                shape.text_frame.text
+                for shape in slide.shapes
+                if shape.has_text_frame
+            ]
+            slide_text = "\n".join(text for text in shape_texts if text)
+            slide_texts.append(slide_text)
+
+            logger.info(
+                "Slide processed | slide_number=%s | characters=%s",
+                slide_number,
+                len(slide_text),
+            )
+
+        extracted_text = "\n\n".join(slide_texts)
+
+        logger.info(
+            "Text extraction completed | slides=%s | characters=%s",
+            len(presentation.slides),
+            len(extracted_text),
+        )
+
+        # Unlike DOCX/TXT/MD, slides are a real pagination concept - use
+        # the actual slide count instead of hardcoding 1.
+        return extracted_text, len(presentation.slides)
 
     def persist_metadata(
         self,

@@ -220,3 +220,60 @@ def test_upload_rejects_corrupted_docx(
     )
 
     assert response.status_code == 422
+
+
+def test_upload_accepts_pptx_file(client: TestClient, valid_pptx_bytes: bytes) -> None:
+    response = client.post(
+        "/documents/upload",
+        files={
+            "file": (
+                "deck.pptx",
+                valid_pptx_bytes,
+                "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+            )
+        },
+    )
+
+    assert response.status_code == 201
+
+    body = response.json()
+    assert body["filename"] == "deck.pptx"
+    # Unlike DOCX/TXT/MD, PPTX page_count reflects the real slide count.
+    assert body["page_count"] == 2
+    assert body["character_count"] > 0
+    assert body["status"] == "completed"
+
+
+def test_upload_rejects_pptx_missing_zip_signature(
+    client: TestClient, valid_pptx_bytes: bytes
+) -> None:
+    response = client.post(
+        "/documents/upload",
+        files={
+            "file": (
+                "deck.pptx",
+                b"not a real pptx",
+                "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+            )
+        },
+    )
+
+    assert response.status_code == 422
+    assert "valid .pptx file" in response.json()["detail"]
+
+
+def test_upload_rejects_corrupted_pptx(
+    client: TestClient, corrupted_pptx_bytes: bytes
+) -> None:
+    response = client.post(
+        "/documents/upload",
+        files={
+            "file": (
+                "deck.pptx",
+                corrupted_pptx_bytes,
+                "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+            )
+        },
+    )
+
+    assert response.status_code == 422
