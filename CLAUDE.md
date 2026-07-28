@@ -62,6 +62,9 @@ Always explain WHY before HOW.
 - Explain the proposed change before implementation.
 - Never claim that tests passed unless they were actually executed.
 - Do not automatically commit or push changes unless explicitly asked.
+  Running `/end-session` or `/commit` counts as that explicit ask -
+  `/end-session` commits once documentation is updated; outside of
+  those two commands, never commit or push unprompted.
 
 ---
 
@@ -86,7 +89,7 @@ Before ending a session ALWAYS (see `/end-session`):
 3. Update `docs/ARCHITECTURE.md` if the system architecture changed.
 4. Update `docs/ROADMAP.md` only if long-term plans changed.
 5. Suggest an entry for `LEARNINGS/DAY_XX.md`.
-6. Suggest a Git commit message.
+6. Commit the session's changes (code and docs together).
 
 ---
 
@@ -145,7 +148,7 @@ Always end a coding session with:
 - Summary
 - Files changed
 - Documentation updates
-- Git commit message
+- Git commit message(s) actually used
 - Suggested next task
 
 ---
@@ -153,7 +156,7 @@ Always end a coding session with:
 # Slash Commands
 
 - `/start-session` - read project docs and propose the smallest useful task for this session.
-- `/end-session` - update project documentation based on this session's actual changes.
+- `/end-session` - update project documentation based on this session's actual changes, then commit everything (code + docs); running it is the explicit request to commit.
 - `/next-task` - lighter-weight, callable mid-session: recommend the single best next task without the full start-session ritual.
 - `/commit` - commit currently uncommitted changes with an auto-generated summary message; running it is the explicit request to commit.
 - `/interview-question` - generate a random, top-tech-company-level interview question from the whole project and answer it concisely (~100-150 words).
