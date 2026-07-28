@@ -172,3 +172,39 @@ file that happens to decode as valid UTF-8 would be silently accepted.
 `page_count` is hardcoded to 1 for non-paginated formats, which is a
 simplification that may need revisiting once a format with a real
 pagination concept (e.g. PPTX slides) is added.
+
+*Update:* when PPTX was added, it did turn out to have a real pagination
+concept (slides), so its extractor returns the actual slide count
+instead of hardcoding 1 - the one exception to this simplification.
+
+---
+
+## Use stdlib `html.parser` instead of a dependency for HTML text extraction
+
+**Decision:** Write a small `HTMLParser` subclass
+(`_VisibleTextExtractor`) that collects text nodes while skipping
+`<script>`/`<style>` content, rather than adding a library like
+BeautifulSoup or `python-magic`-style content sniffing.
+
+**Alternatives considered:**
+
+- `BeautifulSoup4` - more forgiving of malformed markup, richer
+  traversal API (`.get_text()`, CSS selectors), but a new dependency.
+- A regex-based tag stripper - avoids a dependency too, but regexes are
+  well-known to handle nested/malformed HTML incorrectly in edge cases
+  that a real parser handles for free.
+
+**Why chosen:** `html.parser.HTMLParser` is in the standard library,
+handles malformed markup without crashing (verified directly - it
+tolerates unclosed tags), and the only real requirement here is
+"strip tags, skip script/style content" - not full DOM traversal or
+CSS selector support. Reaching for a dependency for a need the standard
+library already covers would go against the project's own rule against
+introducing infrastructure before it's needed.
+
+**Tradeoffs:** `HTMLParser` is lower-level than BeautifulSoup - extra
+whitespace from HTML formatting isn't collapsed, only a final `.strip()`
+is applied. There is also no "malformed HTML" failure mode at all:
+unlike PDF/DOCX/PPTX, virtually any UTF-8 text will produce *some*
+extracted result, even if it isn't meaningfully HTML - a real limitation
+of this format's validation, not a bug.

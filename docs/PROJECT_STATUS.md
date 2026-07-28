@@ -2,9 +2,10 @@
 
 ## Current milestone
 
-Multi-format upload support, phase 2 (complete). PDF, TXT, Markdown, and
-DOCX are all supported through a shared dispatcher. Next milestone
-(PPTX) proposed but not yet started - see below.
+Multi-format upload support (complete). All formats on the roadmap -
+PDF, TXT, Markdown, DOCX, PPTX, and HTML - are supported through a
+shared dispatcher. Next milestone (chunking) proposed but not yet
+started - see below.
 
 ## Completed
 
@@ -64,6 +65,21 @@ DOCX are all supported through a shared dispatcher. Next milestone
   absorbed the new format entirely in `DocumentService`. 3 new tests
   (success, missing ZIP signature, corrupted DOCX) - 16 tests total,
   all passing
+- Added PPTX support the same way: one new `SUPPORTED_FORMATS` entry
+  (same ZIP signature as DOCX) and one new extractor using
+  `python-pptx`. Unlike the other formats, `page_count` reflects the
+  real slide count instead of being hardcoded to 1. A test caught a
+  real bug: `python-pptx` raises its own `PackageNotFoundError` when
+  reading from a file path, not `zipfile.BadZipFile`/`KeyError` as it
+  does from `BytesIO` - fixed before merging. 3 new tests - 19 total
+- Added HTML support with **no new dependency** - stdlib `html.parser`
+  via a small `HTMLParser` subclass that collects visible text while
+  skipping `<script>`/`<style>` content. HTML has no reliable magic
+  bytes, so (like TXT/MD) there's no signature check and no "corrupted
+  HTML" failure mode - any valid UTF-8 text produces some result. 3 new
+  tests (success, script/style stripping verified via the sidecar,
+  non-UTF-8 rejection) - 22 tests total, all passing
+- This completes every format on `docs/ROADMAP.md`'s Phase 2 list
 
 ## Work in progress
 
@@ -73,25 +89,26 @@ None.
 
 - Uploaded files are read fully into memory
 - Files are stored on the local filesystem
-- PDF, TXT, Markdown, and DOCX are supported; PPTX/HTML are targeted in
-  the roadmap but not yet built
 - DOCX extraction only reads paragraph text - tables and embedded
   objects are not extracted
-- Text-format uploads have no signature check (none exist reliably for
-  plain text) - a mislabeled binary file that happens to decode as UTF-8
-  would be silently accepted
+- Text-based formats (TXT, Markdown, HTML) have no signature check
+  (none exist reliably for plain text) - a mislabeled binary file that
+  happens to decode as UTF-8 would be silently accepted
 - Persisted as flat JSON files, not a queryable database - fine for one
   document at a time, but there's no way to search or list across
   documents yet
 - No background processing
 - No embeddings or retrieval
+- No chunking yet - each document's full extracted text is stored as a
+  single blob
 - `starlette.testclient` emits a deprecation warning about `httpx` in favor
   of an `httpx2` package in the currently installed Starlette version; not
   addressed yet, tests are unaffected
 
 ## Next likely milestone
 
-Add PPTX support through the existing dispatcher: one new
-`SUPPORTED_FORMATS` entry (same ZIP signature as DOCX), one new
-extractor using `python-pptx` (a new dependency, extracting text from
-each slide's shapes), and tests mirroring the DOCX pattern.
+Chunking: split each document's `extracted_text` into overlapping,
+size-bounded chunks before it's useful for embeddings. This is the next
+unstarted item on `docs/ROADMAP.md` Phase 2, now that format support is
+complete, and the natural prerequisite for Phase 3 (embeddings,
+retrieval).

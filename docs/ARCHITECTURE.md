@@ -102,31 +102,31 @@ happens.
   file (`uploads/<document_id>.json`) via `DocumentRecord` +
   `DocumentService.persist_metadata`. This is deliberately not a database
   yet - there's nothing to query across documents until Phase 3 needs it.
-- **Formats:** PDF, TXT, Markdown, and DOCX are supported via a registry
-  (`SUPPORTED_FORMATS`, a `dict[str, DocumentFormat]`) that both the
-  router (for validation) and `DocumentService` (for extraction) read
-  from. Adding PPTX/HTML means adding one registry entry and one
-  extractor method - the router's validation logic doesn't grow per
-  format, confirmed by DOCX requiring zero router changes. Text formats
-  have no signature check, since plain text has no reliable magic bytes;
-  a mislabeled file that happens to decode as UTF-8 would currently be
-  silently accepted. DOCX extraction reads paragraph text only - tables
-  and embedded objects are not extracted.
+- **Formats:** PDF, TXT, Markdown, DOCX, PPTX, and HTML are all
+  supported via a registry (`SUPPORTED_FORMATS`, a
+  `dict[str, DocumentFormat]`) that both the router (for validation) and
+  `DocumentService` (for extraction) read from - every format added
+  after the first two (DOCX, PPTX, HTML) required zero router changes,
+  confirming the registry design holds up. Text-based formats (TXT,
+  Markdown, HTML) have no signature check, since plain text has no
+  reliable magic bytes; a mislabeled file that happens to decode as
+  UTF-8 would currently be silently accepted. DOCX extraction reads
+  paragraph text only - tables and embedded objects are not extracted.
+  PPTX is the one format where `page_count` reflects a real pagination
+  concept (actual slide count) rather than being hardcoded to 1.
 
 ## Where this goes next
 
 Per `docs/ROADMAP.md`, the next architectural additions (each will update
 this file when they land) are:
 
-1. **More formats** - PPTX and HTML through the same
-   `SUPPORTED_FORMATS` registry and extractor dispatch already in place.
+1. **Chunking + embeddings** - a new service that turns stored text into
+   vector-ready chunks.
 2. **A real database** - once something needs to query or list across
    documents rather than looking up one JSON file at a time, the sidecar
    files get replaced by a database and likely a `repositories/` layer.
-3. **Chunking + embeddings** - a new service that turns stored text into
-   vector-ready chunks.
-4. **Retrieval** - a vector store dependency and a query-time service.
-5. **RAG / agents** - orchestration on top of retrieval, likely LangGraph.
+3. **Retrieval** - a vector store dependency and a query-time service.
+4. **RAG / agents** - orchestration on top of retrieval, likely LangGraph.
 
 Each addition should be evaluated against the same question used to build
 this layer split: does it belong in `api`, `services`, or `core`, and does

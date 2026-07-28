@@ -149,6 +149,28 @@ silently accepted today — a known, accepted gap, not an oversight.
 
 ---
 
+## "Why didn't you use BeautifulSoup for HTML parsing?"
+
+*(from: Use stdlib html.parser instead of a dependency for HTML text extraction)*
+
+Because the actual requirement was narrow — strip tags, skip script and
+style content, keep the visible text — and Python's standard library
+already covers that with `html.parser`. I wrote a small `HTMLParser`
+subclass that tracks whether it's inside a script or style tag and
+collects text nodes otherwise. I tested it against malformed markup
+first — unclosed tags — to confirm it wouldn't crash before committing
+to the approach, since that's the realistic case for HTML found in the
+wild.
+
+**Follow-up to expect:** "What do you lose by not using a real HTML
+library?" — No DOM traversal or CSS selectors, and no whitespace
+normalization beyond a final strip. More importantly, there's no
+"invalid HTML" failure mode at all — almost any UTF-8 text parses to
+*something* — which is a real, acknowledged gap in this format's
+validation, not something BeautifulSoup would have fixed either.
+
+---
+
 ## How to extend this file
 
 After a session that adds an entry to `docs/DECISIONS.md`, add a matching
