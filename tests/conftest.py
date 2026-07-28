@@ -2,6 +2,7 @@ import io
 from pathlib import Path
 
 import pytest
+from docx import Document as DocxDocument
 from fastapi.testclient import TestClient
 from pypdf import PdfWriter
 
@@ -48,3 +49,21 @@ def encrypted_pdf_bytes() -> bytes:
 def corrupted_pdf_bytes() -> bytes:
     """Bytes with a valid PDF signature but no parsable structure."""
     return b"%PDF-1.4\n" + b"this is not a real pdf body" * 20
+
+
+@pytest.fixture()
+def valid_docx_bytes() -> bytes:
+    """A minimal DOCX with a couple of paragraphs, built at test time."""
+    document = DocxDocument()
+    document.add_paragraph("Knowledge base test document.")
+    document.add_paragraph("Second paragraph.")
+
+    buffer = io.BytesIO()
+    document.save(buffer)
+    return buffer.getvalue()
+
+
+@pytest.fixture()
+def corrupted_docx_bytes() -> bytes:
+    """Bytes with a valid ZIP signature but no parsable DOCX structure."""
+    return b"PK\x03\x04" + b"this is not a real docx body" * 20

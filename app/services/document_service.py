@@ -4,6 +4,8 @@ from pathlib import Path
 from typing import Callable
 from uuid import uuid4
 
+from docx import Document as DocxDocument
+from docx.opc.exceptions import PackageNotFoundError
 from fastapi import UploadFile
 from pypdf import PdfReader
 from pypdf.errors import PdfReadError
@@ -41,6 +43,18 @@ SUPPORTED_FORMATS: dict[str, DocumentFormat] = {
             {"text/markdown", "text/x-markdown", "text/plain"}
         ),
     ),
+    ".docx": DocumentFormat(
+        extension=".docx",
+        allowed_content_types=frozenset(
+            {
+                "application/vnd.openxmlformats-officedocument"
+                ".wordprocessingml.document"
+            }
+        ),
+        # DOCX files are ZIP archives; every ZIP starts with this local
+        # file header signature.
+        signature=b"PK\x03\x04",
+    ),
 }
 
 
@@ -50,6 +64,7 @@ class DocumentService:
             ".pdf": self._extract_pdf,
             ".txt": self._extract_plain_text,
             ".md": self._extract_plain_text,
+            ".docx": self._extract_docx,
         }
 
     async def save_document(
@@ -145,6 +160,25 @@ class DocumentService:
         )
 
         # Plain text formats have no real pagination concept.
+        return text, 1
+
+    def _extract_docx(self, file_path: Path) -> tuple[str, int]:
+        try:
+            document = DocxDocument(str(file_path))
+        except PackageNotFoundError as exc:
+            logger.exception("DOCX parsing failed | path=%s", file_path)
+            raise ValueError("The uploaded file is not a readable DOCX.") from exc
+
+        # Paragraph text only for now - tables and embedded objects are
+        # not extracted yet.
+        text = "\n".join(paragraph.text for paragraph in document.paragraphs)
+
+        logger.info(
+            "Text extraction completed | characters=%s",
+            len(text),
+        )
+
+        # DOCX has no reliably accessible page count without rendering it.
         return text, 1
 
     def persist_metadata(

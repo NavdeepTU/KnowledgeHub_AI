@@ -164,3 +164,59 @@ def test_upload_rejects_non_utf8_text_file(client: TestClient) -> None:
 
     assert response.status_code == 422
     assert "UTF-8" in response.json()["detail"]
+
+
+def test_upload_accepts_docx_file(client: TestClient, valid_docx_bytes: bytes) -> None:
+    response = client.post(
+        "/documents/upload",
+        files={
+            "file": (
+                "report.docx",
+                valid_docx_bytes,
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            )
+        },
+    )
+
+    assert response.status_code == 201
+
+    body = response.json()
+    assert body["filename"] == "report.docx"
+    assert body["page_count"] == 1
+    assert body["character_count"] > 0
+    assert body["status"] == "completed"
+
+
+def test_upload_rejects_docx_missing_zip_signature(
+    client: TestClient, valid_docx_bytes: bytes
+) -> None:
+    response = client.post(
+        "/documents/upload",
+        files={
+            "file": (
+                "report.docx",
+                b"not a real docx",
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            )
+        },
+    )
+
+    assert response.status_code == 422
+    assert "valid .docx file" in response.json()["detail"]
+
+
+def test_upload_rejects_corrupted_docx(
+    client: TestClient, corrupted_docx_bytes: bytes
+) -> None:
+    response = client.post(
+        "/documents/upload",
+        files={
+            "file": (
+                "report.docx",
+                corrupted_docx_bytes,
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            )
+        },
+    )
+
+    assert response.status_code == 422
