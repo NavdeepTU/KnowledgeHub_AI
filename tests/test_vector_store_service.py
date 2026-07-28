@@ -117,6 +117,24 @@ def test_query_similar_chunks_respects_limit(vector_store: VectorStoreService) -
     assert len(results) == 2
 
 
+def test_query_similar_chunks_returns_human_readable_citation(
+    vector_store: VectorStoreService,
+) -> None:
+    chunks = [_make_chunk(0, "only chunk")]
+    embeddings = [[0.5, 0.6]]
+
+    vector_store.upsert_chunks(
+        document_id="doc-2",
+        filename="report.pdf",
+        chunks=chunks,
+        embeddings=embeddings,
+    )
+
+    results = vector_store.query_similar_chunks([0.5, 0.6], limit=5)
+
+    assert results[0].citation == "report.pdf (chunk 0, characters 0-10)"
+
+
 def test_query_similar_chunks_orders_nearest_first(
     vector_store: VectorStoreService,
 ) -> None:

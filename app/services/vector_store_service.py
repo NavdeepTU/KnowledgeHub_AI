@@ -9,6 +9,15 @@ from app.schemas.document import DocumentChunk, SearchResult
 logger = logging.getLogger(__name__)
 
 
+def _format_citation(
+    filename: str,
+    chunk_index: int,
+    start_offset: int,
+    end_offset: int,
+) -> str:
+    return f"{filename} (chunk {chunk_index}, characters {start_offset}-{end_offset})"
+
+
 class VectorStoreService:
     def __init__(
         self,
@@ -90,6 +99,12 @@ class VectorStoreService:
                 start_offset=metadata["start_offset"],
                 end_offset=metadata["end_offset"],
                 distance=distance,
+                citation=_format_citation(
+                    filename=metadata["filename"],
+                    chunk_index=metadata["chunk_index"],
+                    start_offset=metadata["start_offset"],
+                    end_offset=metadata["end_offset"],
+                ),
             )
             for text, metadata, distance in zip(texts, metadatas, distances)
         ]

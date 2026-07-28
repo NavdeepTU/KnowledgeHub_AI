@@ -2,11 +2,12 @@
 
 ## Current milestone
 
-Phase 3 core complete: chunks are embedded locally (`sentence-transformers`)
-and stored in ChromaDB during upload, and `POST /documents/search`
-reads them back. The full pipeline - upload, extract, chunk, embed,
-store, and retrieve - has been verified end-to-end against the real
-running app with no external API dependency.
+Phase 3 complete: chunks are embedded locally (`sentence-transformers`)
+and stored in ChromaDB during upload, `POST /documents/search` reads
+them back, and each result carries a human-readable citation. The full
+pipeline - upload, extract, chunk, embed, store, retrieve, cite - has
+been verified end-to-end against the real running app with no external
+API dependency. Every item on `docs/ROADMAP.md` Phase 3 is done.
 
 ## Completed
 
@@ -140,11 +141,18 @@ running app with no external API dependency.
   and stored in ChromaDB, and confirmed `/documents/search` correctly
   retrieved it - the first time this pipeline has actually succeeded
   end-to-end, since every prior OpenAI attempt was blocked by billing
+- Added citations: `SearchResult` now has a `citation` field (e.g.
+  `"notes.txt (chunk 0, characters 0-26)"`), formatted by a small
+  `_format_citation` helper in `VectorStoreService` from data that was
+  already being stored - no new service, no new dependency. 1 new unit
+  test plus an existing search test extended to assert the format - 51
+  tests total, all passing. This closes out every item on
+  `docs/ROADMAP.md` Phase 3
 
 ## Work in progress
 
-Nothing in progress - Phase 3's core retrieval loop (embed, store,
-search) is complete and verified. See "Next likely milestone" below.
+Nothing in progress - Phase 3 is fully complete and verified. See
+"Next likely milestone" below.
 
 ## Current limitations
 
@@ -169,16 +177,17 @@ search) is complete and verified. See "Next likely milestone" below.
 - `all-MiniLM-L6-v2` is a smaller, less accurate embedding model than
   OpenAI's `text-embedding-3-small` - retrieval quality is a step down
   in exchange for zero cost and no network dependency
-- Search results are not yet surfaced with human-readable citations
-  (document/chunk offsets are returned, but nothing formats them)
+- Citations are a formatted string only (filename, chunk index,
+  character offsets) - there is no snippet highlighting or link back
+  to view the source document
 - `starlette.testclient` emits a deprecation warning about `httpx` in favor
   of an `httpx2` package in the currently installed Starlette version; not
   addressed yet, tests are unaffected
 
 ## Next likely milestone
 
-Add citations: format each search result's `document_id`/`filename`/
-`start_offset`/`end_offset` into a human-readable reference, since all
-the underlying data is already returned by `/documents/search`. This is
-the smallest remaining Phase 3 item before moving on to a real database
-or RAG/agent orchestration.
+Phase 3 (Retrieval) is done. The natural next milestone is Phase 4
+(AI Chat): use an LLM to generate an actual answer from the chunks
+`/documents/search` already returns, with citations attached - the
+first real RAG loop, on top of retrieval infrastructure that's now
+fully built and verified.

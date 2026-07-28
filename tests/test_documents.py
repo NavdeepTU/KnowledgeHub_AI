@@ -484,6 +484,7 @@ def test_search_returns_results_from_uploaded_document(client: TestClient) -> No
     assert result["filename"] == "notes.txt"
     assert result["text"] == "knowledge base search test"
     assert "distance" in result
+    assert result["citation"] == "notes.txt (chunk 0, characters 0-26)"
 
 
 def test_search_respects_limit(client: TestClient) -> None:

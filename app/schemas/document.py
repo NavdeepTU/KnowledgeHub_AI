@@ -74,7 +74,8 @@ class SearchResult(BaseModel):
 
     Carries enough to cite its source (document_id, filename, offsets)
     since that's the whole point of returning a chunk instead of just a
-    raw similarity score.
+    raw similarity score. `citation` is the same offsets formatted as a
+    human-readable reference, e.g. "notes.txt (chunk 0, characters 0-27)".
     """
 
     document_id: str
@@ -84,6 +85,7 @@ class SearchResult(BaseModel):
     start_offset: int
     end_offset: int
     distance: float
+    citation: str
 
 
 class SearchResponse(BaseModel):

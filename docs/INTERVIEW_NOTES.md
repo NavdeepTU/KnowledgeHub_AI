@@ -300,6 +300,29 @@ out of disk space mid-install.
 
 ---
 
+## "How do citations work, and why isn't there a `CitationService`?"
+
+*(from: Format citations as a plain string field in VectorStoreService)*
+
+Every search result already carries its filename, chunk index, and
+character offsets, since I'd kept those around for exactly this reason
+back when I built chunking. So "citations" ended up being a one-line
+formatting function that turns those into a string like `"notes.txt
+(chunk 0, characters 0-26)"`, called right where results are already
+built in `VectorStoreService`. I didn't give it its own service or make
+it a computed field on the schema — it's pure, trivial formatting, and
+adding a class for it would be the exact kind of premature structure I
+try to avoid. Keeping it in `services/` instead of the schema also
+matches how every other derived value in this project gets computed
+outside the schema layer.
+
+**Follow-up to expect:** "What if citations get more complex later —
+page numbers, snippet highlighting?" — Then it earns real logic and
+probably its own service at that point; right now there's no such
+requirement, so building for it would be speculative.
+
+---
+
 ## How to extend this file
 
 After a session that adds an entry to `docs/DECISIONS.md`, add a matching

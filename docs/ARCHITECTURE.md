@@ -128,7 +128,8 @@ sequenceDiagram
     Router->>Embedder: embed_texts([query])
     Embedder-->>Router: query embedding
     Router->>VectorStore: query_similar_chunks(embedding, limit)
-    VectorStore-->>Router: list[SearchResult] (nearest chunks first)
+    VectorStore->>VectorStore: format citation per result
+    VectorStore-->>Router: list[SearchResult] (nearest chunks first, each with a citation)
     Router-->>Client: SearchResponse {query, results}
 ```
 
@@ -204,21 +205,26 @@ happens.
   `VectorStoreService` for the nearest chunks, returning each result's
   document ID, filename, chunk text, offsets, and distance. Verified
   end-to-end against the real running app.
+- **Citations:** each `SearchResult` carries a `citation` field - a
+  human-readable string (`"<filename> (chunk <index>, characters
+  <start>-<end>)"`) built by a small `_format_citation` helper in
+  `VectorStoreService` from data already being stored, at query time.
+  No new service or dependency - purely a formatting step over
+  existing fields.
 
 ## Where this goes next
 
 Per `docs/ROADMAP.md`, this closes out Phase 2 (Document Processing)
-and the core of Phase 3 (Retrieval) - both the write path (embed +
-store) and the read path (`POST /documents/search`) exist end-to-end.
-What's left:
+and Phase 3 (Retrieval) entirely - embedding, storage, search, and
+citations all exist end-to-end. What's left:
 
-1. **Citations** - surfacing which document/chunk (and its
-   `start_offset`/`end_offset`) an answer came from, using metadata
-   that's already being stored and already returned by search.
+1. **RAG / agents (Phase 4)** - use an LLM to generate an actual answer
+   from the chunks `/documents/search` already returns, with citations
+   attached; likely LangGraph for orchestration once it grows beyond a
+   single call-and-respond loop.
 2. **A real database** - once something needs to query or list across
    documents rather than looking up one JSON file at a time, the sidecar
    files get replaced by a database and likely a `repositories/` layer.
-3. **RAG / agents** - orchestration on top of retrieval, likely LangGraph.
 
 Each addition should be evaluated against the same question used to build
 this layer split: does it belong in `api`, `services`, or `core`, and does

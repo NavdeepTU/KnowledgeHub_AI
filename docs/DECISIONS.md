@@ -429,3 +429,34 @@ space shortage on the dev machine, resolved by clearing a 3.7GB pip
 cache). The lazy-construction and hard-failure-on-error design from the
 OpenAI version both carried over unchanged, since neither reason for
 those choices was specific to OpenAI.
+
+---
+
+## Format citations as a plain string field in `VectorStoreService`, not a schema computed field
+
+**Decision:** Add `citation: str` to `SearchResult`, populated by a
+private `_format_citation` function in `vector_store_service.py` at the
+point each `SearchResult` is constructed in `query_similar_chunks`.
+
+**Alternatives considered:**
+
+- A Pydantic `@computed_field` property on `SearchResult` itself, so
+  the citation is always derived automatically from the other fields
+  whenever a `SearchResult` exists.
+- A separate `CitationService`.
+
+**Why chosen:** The formatting logic is pure and trivial (interpolate
+four already-known values into a string), so it doesn't earn a new
+service - it lives right next to the only place `SearchResult` is
+built. A schema `computed_field` was rejected to keep `schemas/`
+holding only data contracts, consistent with how derived values
+elsewhere in the project (chunk offsets, extracted metadata) are always
+computed in `services/` and just stored on the schema, not computed
+by the schema itself.
+
+**Tradeoffs:** The citation format is a plain f-string
+(`"<filename> (chunk <index>, characters <start>-<end>)"`) with no
+localization or alternate formats (e.g. page numbers instead of
+character offsets) - fine for a single, internal-facing API today, but
+would need revisiting if citations are ever rendered directly to an
+end user or need format flexibility.
