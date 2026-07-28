@@ -1,5 +1,6 @@
 from pathlib import Path
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -7,6 +8,8 @@ class Settings(BaseSettings):
     app_name: str = "Enterprise RAG Platform"
     upload_directory: Path = Path("uploads")
     max_upload_size_mb: int = 10
+    chunk_size_chars: int = Field(default=1000, gt=0)
+    chunk_overlap_chars: int = Field(default=200, ge=0)
 
     model_config = SettingsConfigDict(
         env_file=".env",

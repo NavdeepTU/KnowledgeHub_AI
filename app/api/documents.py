@@ -5,6 +5,7 @@ from fastapi import APIRouter, File, HTTPException, UploadFile, status
 
 from app.core.config import settings
 from app.schemas.document import DocumentRecord, DocumentUploadResponse, IngestionStatus
+from app.services.chunking_service import ChunkingService
 from app.services.document_service import SUPPORTED_FORMATS, DocumentService
 
 
@@ -16,6 +17,7 @@ router = APIRouter(
 )
 
 document_service = DocumentService()
+chunking_service = ChunkingService()
 
 
 @router.post(
@@ -35,8 +37,9 @@ async def upload_document(
     3. Validate its size and (where the format defines one) its signature.
     4. Save it locally.
     5. Extract text.
-    6. Persist extracted text and metadata.
-    7. Return processing details.
+    6. Split the extracted text into overlapping chunks.
+    7. Persist extracted text, chunks, and metadata.
+    8. Return processing details.
     """
     logger.info(
         "Upload request received | filename=%s | content_type=%s",
@@ -152,12 +155,19 @@ async def upload_document(
             saved_path,
         )
 
+        chunks = chunking_service.chunk_text(
+            extracted_text,
+            chunk_size=settings.chunk_size_chars,
+            overlap=settings.chunk_overlap_chars,
+        )
+
         record = DocumentRecord(
             document_id=saved_path.stem,
             filename=file.filename,
             page_count=page_count,
             character_count=len(extracted_text),
             extracted_text=extracted_text,
+            chunks=chunks,
             status=IngestionStatus.completed,
         )
 
@@ -167,9 +177,10 @@ async def upload_document(
         )
 
         logger.info(
-            "Upload completed successfully | document_id=%s | filename=%s",
+            "Upload completed successfully | document_id=%s | filename=%s | chunks=%s",
             record.document_id,
             file.filename,
+            len(record.chunks),
         )
 
         return DocumentUploadResponse(
@@ -177,6 +188,7 @@ async def upload_document(
             filename=record.filename,
             page_count=record.page_count,
             character_count=record.character_count,
+            chunk_count=len(record.chunks),
             status=record.status,
         )
 

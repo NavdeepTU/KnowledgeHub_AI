@@ -24,6 +24,8 @@ def test_upload_valid_pdf_succeeds(client: TestClient, valid_pdf_bytes: bytes) -
     assert body["page_count"] == 1
     assert body["status"] == "completed"
     assert body["document_id"]
+    # The blank test PDF has no extractable text, so there's nothing to chunk.
+    assert body["chunk_count"] == 0
 
 
 def test_upload_persists_metadata_sidecar(
@@ -46,6 +48,36 @@ def test_upload_persists_metadata_sidecar(
     assert record["page_count"] == 1
     assert record["status"] == "completed"
     assert record["character_count"] == len(record["extracted_text"])
+    assert record["chunks"] == []
+
+
+def test_upload_persists_chunks_for_long_text(
+    client: TestClient,
+    isolated_upload_directory: Path,
+) -> None:
+    content = ("word " * 1000).encode("utf-8")  # 5000 characters
+
+    response = client.post(
+        "/documents/upload",
+        files={"file": ("notes.txt", content, "text/plain")},
+    )
+
+    document_id = response.json()["document_id"]
+    assert response.json()["chunk_count"] > 1
+
+    sidecar_path = isolated_upload_directory / f"{document_id}.json"
+    record = json.loads(sidecar_path.read_text())
+
+    chunks = record["chunks"]
+    assert len(chunks) == response.json()["chunk_count"]
+    assert [chunk["chunk_index"] for chunk in chunks] == list(range(len(chunks)))
+    # Concatenating each chunk minus its overlap with the previous one
+    # should reconstruct the original text exactly.
+    reconstructed = chunks[0]["text"]
+    for previous, current in zip(chunks, chunks[1:]):
+        overlap_len = previous["end_offset"] - current["start_offset"]
+        reconstructed += current["text"][overlap_len:]
+    assert reconstructed == content.decode("utf-8")
 
 
 def test_upload_failure_does_not_persist_metadata(
