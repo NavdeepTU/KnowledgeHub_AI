@@ -156,3 +156,5 @@ Always end a coding session with:
 - `/end-session` - update project documentation based on this session's actual changes.
 - `/next-task` - lighter-weight, callable mid-session: recommend the single best next task without the full start-session ritual.
 - `/commit` - commit currently uncommitted changes with an auto-generated summary message; running it is the explicit request to commit.
+- `/interview-question` - generate a random, top-tech-company-level interview question from the whole project and answer it concisely (~100-150 words).
+- `/interview-question-recent` - same, but scoped to only the most recently added feature.
