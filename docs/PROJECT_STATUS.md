@@ -2,8 +2,9 @@
 
 ## Current milestone
 
-Automated tests for the PDF ingestion API (complete). Next milestone
-(persisting extracted text) proposed but not yet started - see below.
+Persisting extracted text (complete). Next milestone (multi-format
+upload support, starting with TXT/Markdown) proposed but not yet
+started - see below.
 
 ## Completed
 
@@ -37,19 +38,28 @@ Automated tests for the PDF ingestion API (complete). Next milestone
 - Added a project-scoped `Stop` hook (`.claude/hooks/auto_push.sh`) that
   pushes already-committed work to `origin` automatically after each turn;
   it never commits anything itself
+- Extracted text and metadata are now persisted as a JSON sidecar file
+  (`uploads/<document_id>.json`) via a new `DocumentRecord` schema and
+  `DocumentService.persist_metadata`; covered by 2 new tests (sidecar
+  written on success, no sidecar left behind on failure)
+- `docs/ROADMAP.md` Phase 2 broadened to target DOCX, TXT/Markdown, PPTX,
+  and HTML uploads (decision only - not implemented yet)
+- Added `/next-task` (lightweight "what's next" recommendation, callable
+  mid-session) and `/commit` (review-diff-then-commit workflow) commands
 
 ## Work in progress
 
-None. The next milestone below was proposed this session but the session
-was redirected to GitHub/tooling setup before implementation started.
+None.
 
 ## Current limitations
 
 - Uploaded files are read fully into memory
 - Files are stored on the local filesystem
-- Only PDF files are supported
-- Extracted text is not persisted
-- No database
+- Only PDF files are supported (DOCX/TXT/Markdown/PPTX/HTML targeted in
+  the roadmap but not yet built)
+- Persisted as flat JSON files, not a queryable database - fine for one
+  document at a time, but there's no way to search or list across
+  documents yet
 - No background processing
 - No embeddings or retrieval
 - `starlette.testclient` emits a deprecation warning about `httpx` in favor
@@ -58,6 +68,8 @@ was redirected to GitHub/tooling setup before implementation started.
 
 ## Next likely milestone
 
-Persist extracted text (e.g. to a database or structured file) instead of
-discarding it after the upload response is returned. This is the natural
-next step toward chunking and embeddings in Phase 2/3 of the roadmap.
+Refactor `DocumentService.extract_text` into a per-format dispatcher
+(extension -> validator + extractor) and add TXT/Markdown support through
+it - no new dependencies required, since both formats are just "decode
+bytes as UTF-8." This stands up the multi-format architecture that DOCX,
+PPTX, and HTML will build on next.

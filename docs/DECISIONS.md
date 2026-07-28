@@ -111,3 +111,31 @@ pushes or fails, so it doesn't add noise on every turn.
 It also depends on `CLAUDE_PROJECT_DIR` being set correctly by the Claude
 Code harness, with a hardcoded absolute-path fallback that would break if
 the project directory ever moves.
+
+---
+
+## Persist extracted text as a JSON sidecar file, not a database
+
+**Decision:** Add a `DocumentRecord` schema and
+`DocumentService.persist_metadata` that writes a JSON file
+(`uploads/<document_id>.json`) containing the extracted text and metadata
+next to each saved PDF.
+
+**Alternatives considered:**
+
+- Introduce SQLite or PostgreSQL now and store records there instead.
+- Leave extracted text unpersisted until Phase 3 (retrieval) actually
+  needs it.
+
+**Why chosen:** A database brings schema/migration/session-management
+overhead this milestone doesn't need yet - nothing in the app currently
+needs to query *across* documents, only look up one document's own text
+by its ID. A JSON sidecar is the smallest change that actually removes
+"extracted text is discarded" as a limitation, while still giving a
+concrete artifact to migrate into a real database once Phase 3 needs
+indexed/queryable storage.
+
+**Tradeoffs:** No querying across documents (finding "which documents
+mention X" means scanning every JSON file), no concurrent-write safety,
+and this will need a genuine migration - not just a refactor - once a
+database is introduced.

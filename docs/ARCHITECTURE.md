@@ -22,7 +22,7 @@ flowchart TD
     end
 
     subgraph Services["app/services"]
-        service["document_service.py<br/>save_pdf / extract_text"]
+        service["document_service.py<br/>save_pdf / extract_text / persist_metadata"]
     end
 
     subgraph Core["app/core"]
@@ -78,6 +78,8 @@ sequenceDiagram
         Router-->>Client: 422
     else success
         Service-->>Router: (text, page_count)
+        Router->>Service: persist_metadata(DocumentRecord, upload_directory)
+        Service-->>Router: sidecar path (<document_id>.json)
         Router-->>Client: 201 DocumentUploadResponse
     end
 ```
@@ -94,23 +96,29 @@ requests fail fast before any file I/O happens.
 - **Memory:** the full upload is read into memory before validation. Fine
   at current file-size limits (10 MB default); will need streaming if
   large-file support is added later.
-- **State:** extracted text is computed and returned but not persisted
-  anywhere. There is no database yet - see `docs/ROADMAP.md` Phase 2/3 for
-  when that changes.
-- **Single format:** PDF only. Adding DOCX support should extend
-  `DocumentService`, not branch inside the router.
+- **State:** extracted text and metadata are persisted as a JSON sidecar
+  file (`uploads/<document_id>.json`) via `DocumentRecord` +
+  `DocumentService.persist_metadata`. This is deliberately not a database
+  yet - there's nothing to query across documents until Phase 3 needs it.
+- **Single format:** PDF only. Adding DOCX/TXT/PPTX/HTML support should
+  extend `DocumentService` (a per-format dispatcher), not branch inside
+  the router.
 
 ## Where this goes next
 
 Per `docs/ROADMAP.md`, the next architectural additions (each will update
 this file when they land) are:
 
-1. **Persistence** - extracted text stored somewhere durable, likely
-   introducing a database and a `repositories/` or similar layer.
-2. **Chunking + embeddings** - a new service that turns stored text into
+1. **Multi-format support** - a per-format dispatcher in `DocumentService`
+   for DOCX, TXT/Markdown, PPTX, and HTML, replacing the current
+   PDF-only extraction path.
+2. **A real database** - once something needs to query or list across
+   documents rather than looking up one JSON file at a time, the sidecar
+   files get replaced by a database and likely a `repositories/` layer.
+3. **Chunking + embeddings** - a new service that turns stored text into
    vector-ready chunks.
-3. **Retrieval** - a vector store dependency and a query-time service.
-4. **RAG / agents** - orchestration on top of retrieval, likely LangGraph.
+4. **Retrieval** - a vector store dependency and a query-time service.
+5. **RAG / agents** - orchestration on top of retrieval, likely LangGraph.
 
 Each addition should be evaluated against the same question used to build
 this layer split: does it belong in `api`, `services`, or `core`, and does

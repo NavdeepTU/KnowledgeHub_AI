@@ -108,6 +108,26 @@ a team project.
 
 ---
 
+## "How do you persist data before you have a database?"
+
+*(from: Persist extracted text as a JSON sidecar file, not a database)*
+
+I didn't reach for a database the moment I needed to persist something -
+I asked what actually needed to be true right now, which was just "look
+up one document's own extracted text by its ID." So I wrote a JSON
+sidecar file next to each saved PDF instead. It's the smallest change
+that removes "extracted text is discarded" as a limitation, and it gives
+me something concrete to migrate into a real database later, once
+retrieval actually needs to query *across* documents instead of looking
+up one at a time.
+
+**Follow-up to expect:** "What breaks first as this scales?" — Concurrent
+writes (no locking) and the inability to search across documents without
+scanning every file; both are exactly the signals that would tell me it's
+time for the database migration, not a reason to build it preemptively.
+
+---
+
 ## How to extend this file
 
 After a session that adds an entry to `docs/DECISIONS.md`, add a matching
