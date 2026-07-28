@@ -585,3 +585,42 @@ than trusting every caller to pass `None` correctly.
 **Tradeoffs:** None meaningful - this only changes behavior for an
 input (`""`) that was never meaningfully different from "no key" in
 the first place.
+
+---
+
+## Stream `/documents/ask/stream` as newline-delimited JSON, not Server-Sent Events
+
+**Decision:** `POST /documents/ask/stream` returns its body as
+newline-delimited JSON (`application/x-ndjson`) - one `AskStreamMeta`
+line, then one `AskStreamDelta` line per generated chunk - rather than
+the Server-Sent Events (`text/event-stream`) format most LLM chat APIs
+and browser-side chat UIs use.
+
+**Alternatives considered:**
+
+- Server-Sent Events (`event:`/`data:` framing), matching how
+  OpenAI/Anthropic/Groq's own streaming APIs and most browser
+  `EventSource`-based chat frontends work.
+- A single `text/plain` stream of raw answer text only, with
+  `conversation_id` and `sources` sent as response headers instead of
+  in the body.
+
+**Why chosen:** There's no frontend yet to consume this response - the
+only client so far is a test suite and manual `curl`. NDJSON needs no
+special client support beyond "split on newlines and `json.loads()`
+each one," which is genuinely simpler to produce, parse, and test than
+SSE's event-type framing, while still cleanly carrying structured
+metadata (`conversation_id`, `sources`) inline with the text deltas -
+something the header-based `text/plain` alternative would have made
+awkward, since `sources` is a list of full `SearchResult` objects, not
+a small scalar value. Building full SSE framing now for a frontend
+that doesn't exist yet would be exactly the kind of premature
+infrastructure this project avoids.
+
+**Tradeoffs:** A real browser frontend built later would either need a
+small client-side NDJSON parser (a few lines, not a real burden) or a
+migration to SSE at that point - documented as a known limitation
+rather than solved preemptively. NDJSON is also a less
+widely-recognized convention than SSE, so a new contributor unfamiliar
+with the format would need this decision's context to understand why
+the response isn't `text/event-stream`.

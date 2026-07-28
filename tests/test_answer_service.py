@@ -76,6 +76,52 @@ def test_generate_answer_replays_history_before_the_current_question() -> None:
     assert "What color is it?" in messages[3]["content"]
 
 
+def test_generate_answer_stream_returns_fallback_message_for_no_chunks() -> None:
+    service = AnswerService(client=FakeGroqClient())
+
+    deltas = list(service.generate_answer_stream("What is X?", []))
+
+    assert len(deltas) == 1
+    assert "don't have any relevant documents" in deltas[0].lower()
+
+
+def test_generate_answer_stream_yields_each_chunk_in_order() -> None:
+    fake_client = FakeGroqClient(stream_chunks=["X is ", "a widget", ". [1]"])
+    service = AnswerService(client=fake_client)
+    chunk = _make_result("X is a widget.", "notes.txt (chunk 0, characters 0-14)")
+
+    deltas = list(service.generate_answer_stream("What is X?", [chunk]))
+
+    assert deltas == ["X is ", "a widget", ". [1]"]
+    assert "".join(deltas) == "X is a widget. [1]"
+
+
+def test_generate_answer_stream_skips_empty_deltas() -> None:
+    # FakeGroqClient always prepends a role-only chunk with no content,
+    # matching a real stream's leading chunk - it must not become a
+    # spurious empty-string delta.
+    fake_client = FakeGroqClient(stream_chunks=["answer"])
+    service = AnswerService(client=fake_client)
+    chunk = _make_result("X is a widget.", "notes.txt (chunk 0, characters 0-14)")
+
+    deltas = list(service.generate_answer_stream("What is X?", [chunk]))
+
+    assert deltas == ["answer"]
+
+
+def test_generate_answer_stream_passes_the_same_messages_as_non_streaming() -> None:
+    fake_client = FakeGroqClient()
+    service = AnswerService(client=fake_client)
+    chunk = _make_result("X is a widget.", "notes.txt (chunk 0, characters 0-14)")
+
+    list(service.generate_answer_stream("What is X?", [chunk]))
+
+    assert fake_client.last_call["stream"] is True
+    prompt = fake_client.last_call["messages"][-1]["content"]
+    assert "X is a widget." in prompt
+    assert "What is X?" in prompt
+
+
 def test_empty_string_api_key_is_treated_as_unset() -> None:
     # An empty string ("" from an unfilled .env placeholder) must not be
     # passed through as-is: groq.Groq(api_key="") skips the SDK's normal

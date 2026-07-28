@@ -3,11 +3,15 @@ from pathlib import Path
 from uuid import uuid4
 
 from fastapi import APIRouter, File, HTTPException, UploadFile, status
+from fastapi.responses import StreamingResponse
 
 from app.core.config import settings
 from app.schemas.document import (
     AskRequest,
     AskResponse,
+    AskStreamDelta,
+    AskStreamError,
+    AskStreamMeta,
     ConversationTurn,
     DocumentRecord,
     DocumentUploadResponse,
@@ -377,3 +381,78 @@ async def ask_question(request: AskRequest) -> AskResponse:
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="An unexpected error occurred while answering the question.",
         ) from exc
+
+
+@router.post("/ask/stream")
+async def ask_question_stream(request: AskRequest) -> StreamingResponse:
+    """
+    Same as /ask, but streams the answer as it's generated instead of
+    waiting for the full response.
+
+    The body is newline-delimited JSON: one AskStreamMeta line first
+    (conversation_id + sources, everything the client needs before any
+    answer text arrives), then one AskStreamDelta line per piece of
+    generated text, in order.
+
+    Retrieval (embedding, vector store) happens before the stream
+    starts, so a failure there is still a normal HTTP error, same as
+    /ask. Once streaming begins the HTTP status is already committed,
+    so a failure during generation is signaled as a final AskStreamError
+    line instead - there's no HTTP status left to change at that point.
+    """
+    logger.info(
+        "Ask stream request received | question=%s | limit=%s | conversation_id=%s",
+        request.question,
+        request.limit,
+        request.conversation_id,
+    )
+
+    try:
+        conversation_id = request.conversation_id or str(uuid4())
+        history = conversation_service.load_history(conversation_id)
+
+        query_embedding = embedding_service.embed_texts([request.question])[0]
+
+        chunks = vector_store_service.query_similar_chunks(
+            query_embedding,
+            limit=request.limit,
+        )
+    except Exception as exc:
+        logger.exception("Ask stream failed before streaming started | question=%s", request.question)
+
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An unexpected error occurred while answering the question.",
+        ) from exc
+
+    def stream_body():
+        yield AskStreamMeta(conversation_id=conversation_id, sources=chunks).model_dump_json() + "\n"
+
+        answer_parts: list[str] = []
+        try:
+            for delta in answer_service.generate_answer_stream(
+                request.question, chunks, history=history
+            ):
+                answer_parts.append(delta)
+                yield AskStreamDelta(delta=delta).model_dump_json() + "\n"
+        except Exception:
+            logger.exception("Ask stream failed while generating | question=%s", request.question)
+            yield AskStreamError(
+                error="An unexpected error occurred while answering the question."
+            ).model_dump_json() + "\n"
+            return
+
+        answer = "".join(answer_parts)
+        conversation_service.append_turn(
+            conversation_id,
+            ConversationTurn(question=request.question, answer=answer),
+        )
+
+        logger.info(
+            "Ask stream completed | question=%s | conversation_id=%s | sources=%s",
+            request.question,
+            conversation_id,
+            len(chunks),
+        )
+
+    return StreamingResponse(stream_body(), media_type="application/x-ndjson")

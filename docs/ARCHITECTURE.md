@@ -186,6 +186,50 @@ cost, no round trip, for a question nothing in the vector store can
 answer. A failed LLM call raises before `append_turn` runs, so a failed
 turn is never persisted as if it happened.
 
+## Request flow: `POST /documents/ask/stream`
+
+```mermaid
+sequenceDiagram
+    participant Client
+    participant Router as documents.py
+    participant Conversation as ConversationService
+    participant Embedder as EmbeddingService
+    participant VectorStore as VectorStoreService
+    participant Answer as AnswerService
+    participant LLM as Groq API
+
+    Client->>Router: {question, limit, conversation_id?}
+    Router->>Conversation: load_history(conversation_id)
+    Router->>Embedder: embed_texts([question])
+    Router->>VectorStore: query_similar_chunks(embedding, limit)
+    VectorStore-->>Router: list[SearchResult]
+    Note over Router: Retrieval failures raise HTTPException here -<br/>the HTTP status is still open to change.
+    Router-->>Client: AskStreamMeta {conversation_id, sources} (first NDJSON line)
+    Router->>Answer: generate_answer_stream(question, chunks, history)
+    loop each generated chunk
+        Answer->>LLM: (stream=True) chat.completions.create(...)
+        LLM-->>Answer: ChatCompletionChunk
+        Answer-->>Router: text delta
+        Router-->>Client: AskStreamDelta {delta} (one NDJSON line)
+    end
+    Router->>Router: join all deltas into the full answer
+    Router->>Conversation: append_turn(conversation_id, question+answer)
+```
+
+The response body is streamed as newline-delimited JSON
+(`application/x-ndjson`), not Server-Sent Events. Retrieval (embedding,
+vector search) happens *before* the `StreamingResponse` is constructed,
+so a failure there is still an ordinary HTTP 500, exactly like
+`/documents/ask`. Once streaming begins the HTTP status is already
+committed, so a failure during generation can't become an HTTP error
+anymore - it's signaled as a final `AskStreamError` line instead, and
+the conversation turn is simply never persisted (same "only persist on
+success" guarantee as the non-streaming endpoint). `AnswerService`
+shares its prompt-construction logic (`_build_messages`) between
+`generate_answer` and `generate_answer_stream`, so both endpoints see
+identical grounding and history behavior - streaming only changes how
+the answer is delivered, not how it's produced.
+
 ## Current constraints (by design, for now)
 
 - **Storage:** local filesystem under `uploads/`, filenames are generated
@@ -270,19 +314,31 @@ turn is never persisted as if it happened.
   request. History is replayed into `AnswerService` as alternating
   user/assistant messages on every call, since chat completions are
   stateless - there's no server-side session to attach to.
+- **Streaming:** `POST /documents/ask/stream` returns the answer as
+  newline-delimited JSON via `AnswerService.generate_answer_stream`,
+  which shares its prompt-construction logic with the non-streaming
+  `generate_answer` through a private `_build_messages` helper so both
+  paths ground and replay history identically. Retrieval failures
+  still surface as a normal HTTP error before the stream starts; a
+  failure during generation is signaled as a final `AskStreamError`
+  line instead, since the HTTP status is already committed by then.
+  The conversation turn is only persisted once the full answer has
+  been reassembled from every streamed delta.
 
 ## Where this goes next
 
-Per `docs/ROADMAP.md`, this closes out Phase 2 (Document Processing)
-and Phase 3 (Retrieval) entirely, and Phase 4 (AI Chat) has its first
-two items done - RAG and conversation history. What's left:
+Per `docs/ROADMAP.md`, this closes out Phase 2 (Document Processing),
+Phase 3 (Retrieval), and Phase 4 (AI Chat) entirely - RAG, conversation
+history, and streaming are all built and verified against the real
+running app. What's left:
 
-1. **Streaming responses (Phase 4)** - `/documents/ask` currently waits
-   for the full answer before returning; no code exists yet for
-   streaming partial output back to the client.
-2. **A real database** - once something needs to query or list across
-   documents rather than looking up one JSON file at a time, the sidecar
-   files get replaced by a database and likely a `repositories/` layer.
+1. **A real database (Phase 5)** - once something needs to query or
+   list across documents rather than looking up one JSON file at a
+   time, the sidecar files get replaced by a database and likely a
+   `repositories/` layer.
+2. **Authentication, Docker, AWS, monitoring (Phase 5)** - none of this
+   exists yet; the app currently assumes a single trusted user running
+   it locally.
 
 Each addition should be evaluated against the same question used to build
 this layer split: does it belong in `api`, `services`, or `core`, and does

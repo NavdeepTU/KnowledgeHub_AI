@@ -1,4 +1,5 @@
 import logging
+from typing import Iterator
 
 import groq
 
@@ -15,6 +16,8 @@ _SYSTEM_PROMPT = (
     "context to cite. If the current context does not contain the "
     "answer, say so plainly instead of guessing."
 )
+
+_NO_CONTEXT_ANSWER = "I don't have any relevant documents to answer that question."
 
 
 class AnswerService:
@@ -51,25 +54,12 @@ class AnswerService:
 
         return self._client
 
-    def generate_answer(
+    def _build_messages(
         self,
         question: str,
         chunks: list[SearchResult],
-        history: list[ConversationTurn] | None = None,
-    ) -> str:
-        """
-        Answer a question using only the given chunks as context, via a
-        single non-streaming chat completion - no agent loop, no tool use.
-
-        `history` replays prior question/answer text (not the chunks that
-        grounded those earlier answers) so the model has conversational
-        memory without re-sending every past turn's full context on every
-        request. Chat completions are stateless, so this is rebuilt fresh
-        on every call.
-        """
-        if not chunks:
-            return "I don't have any relevant documents to answer that question."
-
+        history: list[ConversationTurn] | None,
+    ) -> list[dict]:
         context = "\n\n".join(
             f"[{index}] {chunk.citation}\n{chunk.text}"
             for index, chunk in enumerate(chunks, start=1)
@@ -87,11 +77,32 @@ class AnswerService:
             }
         )
 
+        return messages
+
+    def generate_answer(
+        self,
+        question: str,
+        chunks: list[SearchResult],
+        history: list[ConversationTurn] | None = None,
+    ) -> str:
+        """
+        Answer a question using only the given chunks as context, via a
+        single non-streaming chat completion - no agent loop, no tool use.
+
+        `history` replays prior question/answer text (not the chunks that
+        grounded those earlier answers) so the model has conversational
+        memory without re-sending every past turn's full context on every
+        request. Chat completions are stateless, so this is rebuilt fresh
+        on every call.
+        """
+        if not chunks:
+            return _NO_CONTEXT_ANSWER
+
         client = self._get_client()
         response = client.chat.completions.create(
             model=self._model_name,
             max_completion_tokens=1024,
-            messages=messages,
+            messages=self._build_messages(question, chunks, history),
         )
 
         answer = response.choices[0].message.content
@@ -103,3 +114,38 @@ class AnswerService:
         )
 
         return answer
+
+    def generate_answer_stream(
+        self,
+        question: str,
+        chunks: list[SearchResult],
+        history: list[ConversationTurn] | None = None,
+    ) -> Iterator[str]:
+        """
+        Same grounding and prompt as generate_answer, but yields the
+        answer incrementally as Groq generates it, instead of waiting
+        for the full response. Chunks with no text delta (e.g. the
+        first chunk, which only carries the role) are skipped.
+        """
+        if not chunks:
+            yield _NO_CONTEXT_ANSWER
+            return
+
+        client = self._get_client()
+        stream = client.chat.completions.create(
+            model=self._model_name,
+            max_completion_tokens=1024,
+            messages=self._build_messages(question, chunks, history),
+            stream=True,
+        )
+
+        for chunk in stream:
+            delta = chunk.choices[0].delta.content
+            if delta:
+                yield delta
+
+        logger.info(
+            "Answer stream completed | model=%s | chunks_used=%s",
+            self._model_name,
+            len(chunks),
+        )

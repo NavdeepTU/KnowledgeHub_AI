@@ -400,6 +400,29 @@ input produced the confusing error and which produced a clean one.
 
 ---
 
+## "Why didn't you use Server-Sent Events for your streaming endpoint?"
+
+*(from: Stream /documents/ask/stream as newline-delimited JSON, not SSE)*
+
+SSE is the standard most LLM streaming APIs and browser chat UIs use,
+and I know that — I chose newline-delimited JSON instead because there
+is no frontend consuming this yet. NDJSON is simpler on both ends: to
+produce, it's just one JSON object per line; to parse, it's "split on
+newlines, `json.loads` each one" — no event-type framing to implement.
+It still carries structured data cleanly, which mattered because my
+first line needs to send a conversation ID and a full list of source
+chunks, not just plain text. Building real SSE support for a client
+that doesn't exist yet would've been exactly the kind of premature
+infrastructure I try to avoid on this project.
+
+**Follow-up to expect:** "What happens when you actually build a
+frontend?" — Either a small client-side NDJSON parser, which is only a
+few lines, or a migration to SSE at that point if I want to use an
+off-the-shelf `EventSource`-based chat UI. I documented that as a known
+limitation rather than guessing at what a future frontend will need.
+
+---
+
 ## How to extend this file
 
 After a session that adds an entry to `docs/DECISIONS.md`, add a matching

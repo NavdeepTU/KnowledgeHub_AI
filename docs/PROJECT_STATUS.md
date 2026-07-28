@@ -2,11 +2,12 @@
 
 ## Current milestone
 
-Phase 4 (AI Chat) kickoff: `POST /documents/ask` generates an actual
+Phase 4 (AI Chat) complete: `POST /documents/ask` generates an actual
 answer from retrieved chunks via Groq's free-tier API (open-source
-`llama-3.1-8b-instant`), with citations and multi-turn conversation
-history. Phase 3 (Retrieval) remains fully complete underneath it -
-chunks are embedded locally, stored in ChromaDB, and retrievable via
+`llama-3.1-8b-instant`), with citations, multi-turn conversation
+history, and a streaming variant (`POST /documents/ask/stream`). Phase
+3 (Retrieval) remains fully complete underneath it - chunks are
+embedded locally, stored in ChromaDB, and retrievable via
 `/documents/search` with no external API dependency at all.
 
 ## Completed
@@ -185,12 +186,31 @@ chunks are embedded locally, stored in ChromaDB, and retrievable via
   in the same conversation and confirmed it correctly used the
   replayed history to answer without repeating the original context.
   Confirmed the conversation sidecar persisted both turns correctly
+- Added streaming: `AnswerService.generate_answer_stream` (extracted
+  shared prompt-building into `_build_messages` first to avoid
+  duplicating it) yields text incrementally via Groq's `stream=True`
+  mode, and `POST /documents/ask/stream` returns it as
+  newline-delimited JSON - one `AskStreamMeta` line (conversation_id +
+  sources) first, then one `AskStreamDelta` line per generated chunk.
+  Retrieval failures still surface as a normal HTTP error before
+  streaming starts, same as `/ask`; a failure once streaming has begun
+  is signaled as a final `AskStreamError` line instead, since the HTTP
+  status is already committed by then. The conversation turn is only
+  persisted after the full answer is reassembled from all deltas. 10
+  new tests (4 service-level streaming tests, 6 endpoint integration
+  tests) - 80 tests total, all passing
+- Verified genuinely incremental streaming against the real running
+  app and the real Groq API: 13 separate delta chunks arrived for one
+  answer (not one buffered blob), correctly grounded with a citation,
+  and the full reassembled answer was persisted to the conversation
+  file exactly as expected. This closes out every item on
+  `docs/ROADMAP.md` Phase 4
 
 ## Work in progress
 
-Nothing in progress - Phase 4's RAG and conversation-history items are
-both complete and verified against the real running app with a real
-answer. See "Next likely milestone" below.
+Nothing in progress - Phase 4 (RAG, conversation history, streaming)
+is fully complete and verified against the real running app. See
+"Next likely milestone" below.
 
 ## Current limitations
 
@@ -229,12 +249,17 @@ answer. See "Next likely milestone" below.
   GPT-tier models - answer quality and instruction-following (staying
   strictly grounded in context, consistent citation formatting) will be
   noticeably less reliable, in exchange for being genuinely free
-- No streaming responses yet - `/documents/ask` waits for the full
-  answer before returning
+- `/documents/ask/stream`'s newline-delimited JSON is a simple,
+  easy-to-parse format but not the Server-Sent Events (`text/event-stream`)
+  standard most browser-side LLM chat UIs expect - a real frontend
+  would need either a small client-side parser for this format or a
+  future switch to SSE
 
 ## Next likely milestone
 
-RAG and conversation history (Phase 4's first two items) are both done
-and verified with real answers. The next roadmap item is streaming
-responses - `/documents/ask` currently waits for the full answer
-before returning anything to the client.
+Phase 4 (AI Chat) is fully done - RAG, conversation history, and
+streaming are all built and verified against the real running app.
+There is no obvious single next roadmap item pulling ahead of the
+others in Phase 5 (PostgreSQL, Authentication, Docker, AWS,
+Monitoring) yet; the next session should start with `/start-session`
+to decide direction rather than defaulting to the first Phase 5 bullet.

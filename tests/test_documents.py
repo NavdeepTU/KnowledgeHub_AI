@@ -3,6 +3,7 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
+from app.services.conversation_service import ConversationService
 from app.services.vector_store_service import VectorStoreService
 from tests.fakes import FakeGroqClient
 
@@ -601,6 +602,106 @@ def test_ask_with_unknown_conversation_id_still_answers(client: TestClient) -> N
 
     assert response.status_code == 200
     assert response.json()["conversation_id"] == "does-not-exist-yet"
+
+
+def _parse_ndjson_lines(response_text: str) -> list[dict]:
+    return [json.loads(line) for line in response_text.strip().split("\n") if line]
+
+
+def test_ask_stream_returns_answer_grounded_in_uploaded_document(
+    client: TestClient, isolated_answer_service: FakeGroqClient
+) -> None:
+    client.post(
+        "/documents/upload",
+        files={"file": ("notes.txt", b"knowledge base search test", "text/plain")},
+    )
+
+    response = client.post("/documents/ask/stream", json={"question": "search test"})
+
+    assert response.status_code == 200
+
+    lines = _parse_ndjson_lines(response.text)
+    meta, *deltas = lines
+
+    assert meta["conversation_id"]
+    assert len(meta["sources"]) == 1
+    assert meta["sources"][0]["text"] == "knowledge base search test"
+    assert "".join(d["delta"] for d in deltas) == "This is a fake answer. [1]"
+
+
+def test_ask_stream_on_empty_vector_store_skips_the_model_call(
+    client: TestClient, isolated_answer_service: FakeGroqClient
+) -> None:
+    response = client.post("/documents/ask/stream", json={"question": "anything"})
+
+    assert response.status_code == 200
+
+    lines = _parse_ndjson_lines(response.text)
+    meta, *deltas = lines
+
+    assert meta["sources"] == []
+    assert "".join(d["delta"] for d in deltas).lower().find("don't have any relevant documents") != -1
+    assert isolated_answer_service.last_call is None
+
+
+def test_ask_stream_with_conversation_id_replays_history_to_the_model(
+    client: TestClient, isolated_answer_service: FakeGroqClient
+) -> None:
+    client.post(
+        "/documents/upload",
+        files={"file": ("notes.txt", b"knowledge base search test", "text/plain")},
+    )
+
+    first = client.post("/documents/ask/stream", json={"question": "search test"})
+    conversation_id = _parse_ndjson_lines(first.text)[0]["conversation_id"]
+
+    second = client.post(
+        "/documents/ask/stream",
+        json={"question": "follow up", "conversation_id": conversation_id},
+    )
+
+    assert second.status_code == 200
+    assert _parse_ndjson_lines(second.text)[0]["conversation_id"] == conversation_id
+
+    messages = isolated_answer_service.last_call["messages"]
+    assert len(messages) == 4
+    assert messages[0]["role"] == "system"
+    assert messages[1] == {"role": "user", "content": "search test"}
+    assert messages[2] == {"role": "assistant", "content": "This is a fake answer. [1]"}
+    assert "follow up" in messages[3]["content"]
+
+
+def test_ask_stream_persists_the_full_reassembled_answer(
+    client: TestClient,
+    isolated_conversation_service: ConversationService,
+) -> None:
+    client.post(
+        "/documents/upload",
+        files={"file": ("notes.txt", b"knowledge base search test", "text/plain")},
+    )
+
+    response = client.post("/documents/ask/stream", json={"question": "search test"})
+    conversation_id = _parse_ndjson_lines(response.text)[0]["conversation_id"]
+
+    history = isolated_conversation_service.load_history(conversation_id)
+
+    assert len(history) == 1
+    assert history[0].question == "search test"
+    assert history[0].answer == "This is a fake answer. [1]"
+
+
+def test_ask_stream_rejects_empty_question(client: TestClient) -> None:
+    response = client.post("/documents/ask/stream", json={"question": ""})
+
+    assert response.status_code == 422
+
+
+def test_ask_stream_rejects_limit_out_of_range(client: TestClient) -> None:
+    response = client.post(
+        "/documents/ask/stream", json={"question": "test", "limit": 100}
+    )
+
+    assert response.status_code == 422
 
 
 def test_ask_rejects_empty_question(client: TestClient) -> None:

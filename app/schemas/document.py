@@ -132,3 +132,29 @@ class ConversationRecord(BaseModel):
 
     conversation_id: str
     turns: list[ConversationTurn]
+
+
+class AskStreamMeta(BaseModel):
+    """First line of a `/documents/ask/stream` response - everything the
+    client needs before any answer text arrives."""
+
+    conversation_id: str
+    sources: list[SearchResult]
+
+
+class AskStreamDelta(BaseModel):
+    """One incremental piece of the answer, as it's generated."""
+
+    delta: str
+
+
+class AskStreamError(BaseModel):
+    """Terminal line if generation fails partway through streaming.
+
+    Retrieval failures (embedding, vector store) still surface as a
+    normal HTTP error before streaming starts - this only covers
+    failures once the HTTP response has already begun, when the status
+    code can no longer change.
+    """
+
+    error: str
