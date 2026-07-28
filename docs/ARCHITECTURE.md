@@ -102,21 +102,23 @@ happens.
   file (`uploads/<document_id>.json`) via `DocumentRecord` +
   `DocumentService.persist_metadata`. This is deliberately not a database
   yet - there's nothing to query across documents until Phase 3 needs it.
-- **Formats:** PDF, TXT, and Markdown are supported via a registry
+- **Formats:** PDF, TXT, Markdown, and DOCX are supported via a registry
   (`SUPPORTED_FORMATS`, a `dict[str, DocumentFormat]`) that both the
   router (for validation) and `DocumentService` (for extraction) read
-  from. Adding DOCX/PPTX/HTML means adding one registry entry and one
+  from. Adding PPTX/HTML means adding one registry entry and one
   extractor method - the router's validation logic doesn't grow per
-  format. Text formats have no signature check, since plain text has no
-  reliable magic bytes; a mislabeled file that happens to decode as
-  UTF-8 would currently be silently accepted.
+  format, confirmed by DOCX requiring zero router changes. Text formats
+  have no signature check, since plain text has no reliable magic bytes;
+  a mislabeled file that happens to decode as UTF-8 would currently be
+  silently accepted. DOCX extraction reads paragraph text only - tables
+  and embedded objects are not extracted.
 
 ## Where this goes next
 
 Per `docs/ROADMAP.md`, the next architectural additions (each will update
 this file when they land) are:
 
-1. **More formats** - DOCX, PPTX, and HTML through the same
+1. **More formats** - PPTX and HTML through the same
    `SUPPORTED_FORMATS` registry and extractor dispatch already in place.
 2. **A real database** - once something needs to query or list across
    documents rather than looking up one JSON file at a time, the sidecar

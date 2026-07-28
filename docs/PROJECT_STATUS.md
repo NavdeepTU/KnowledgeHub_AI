@@ -2,9 +2,9 @@
 
 ## Current milestone
 
-Multi-format upload support, phase 1 (complete). PDF, TXT, and Markdown
-are all supported through a shared dispatcher. Next milestone (DOCX)
-proposed but not yet started - see below.
+Multi-format upload support, phase 2 (complete). PDF, TXT, Markdown, and
+DOCX are all supported through a shared dispatcher. Next milestone
+(PPTX) proposed but not yet started - see below.
 
 ## Completed
 
@@ -57,6 +57,13 @@ proposed but not yet started - see below.
 - Added `/interview-question` and `/interview-question-recent` commands:
   generate a random (or most-recent-feature) interview question grounded
   in the actual project, with a concise (~100-150 word) technical answer
+- Added DOCX support through the existing dispatcher: one new
+  `SUPPORTED_FORMATS` entry (ZIP signature `PK\x03\x04`), one new
+  extractor using `python-docx` (paragraph text only, tables not yet
+  extracted). Required zero changes to the router - the dispatcher
+  absorbed the new format entirely in `DocumentService`. 3 new tests
+  (success, missing ZIP signature, corrupted DOCX) - 16 tests total,
+  all passing
 
 ## Work in progress
 
@@ -66,8 +73,10 @@ None.
 
 - Uploaded files are read fully into memory
 - Files are stored on the local filesystem
-- PDF, TXT, and Markdown are supported; DOCX/PPTX/HTML are targeted in
+- PDF, TXT, Markdown, and DOCX are supported; PPTX/HTML are targeted in
   the roadmap but not yet built
+- DOCX extraction only reads paragraph text - tables and embedded
+  objects are not extracted
 - Text-format uploads have no signature check (none exist reliably for
   plain text) - a mislabeled binary file that happens to decode as UTF-8
   would be silently accepted
@@ -82,8 +91,7 @@ None.
 
 ## Next likely milestone
 
-Add DOCX support through the existing dispatcher: one new
-`SUPPORTED_FORMATS` entry (content type, ZIP signature `PK\x03\x04`), one
-new extractor using `python-docx` (a new dependency), and tests mirroring
-the TXT/Markdown pattern. The dispatcher groundwork already exists, so
-this should be a small, self-contained addition.
+Add PPTX support through the existing dispatcher: one new
+`SUPPORTED_FORMATS` entry (same ZIP signature as DOCX), one new
+extractor using `python-pptx` (a new dependency, extracting text from
+each slide's shapes), and tests mirroring the DOCX pattern.
