@@ -1,5 +1,6 @@
 import logging
 from dataclasses import dataclass
+from html.parser import HTMLParser
 from pathlib import Path
 from typing import Callable
 from uuid import uuid4
@@ -68,7 +69,36 @@ SUPPORTED_FORMATS: dict[str, DocumentFormat] = {
         # PPTX is also a ZIP-based Office format.
         signature=b"PK\x03\x04",
     ),
+    ".html": DocumentFormat(
+        extension=".html",
+        allowed_content_types=frozenset({"text/html"}),
+        # No reliable magic bytes for HTML, same as the other text formats.
+    ),
 }
+
+
+class _VisibleTextExtractor(HTMLParser):
+    """Collects text nodes, skipping <script> and <style> content."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._chunks: list[str] = []
+        self._skip_depth = 0
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag in ("script", "style"):
+            self._skip_depth += 1
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag in ("script", "style") and self._skip_depth > 0:
+            self._skip_depth -= 1
+
+    def handle_data(self, data: str) -> None:
+        if self._skip_depth == 0:
+            self._chunks.append(data)
+
+    def get_text(self) -> str:
+        return "".join(self._chunks).strip()
 
 
 class DocumentService:
@@ -79,6 +109,7 @@ class DocumentService:
             ".md": self._extract_plain_text,
             ".docx": self._extract_docx,
             ".pptx": self._extract_pptx,
+            ".html": self._extract_html,
         }
 
     async def save_document(
@@ -230,6 +261,29 @@ class DocumentService:
         # Unlike DOCX/TXT/MD, slides are a real pagination concept - use
         # the actual slide count instead of hardcoding 1.
         return extracted_text, len(presentation.slides)
+
+    def _extract_html(self, file_path: Path) -> tuple[str, int]:
+        try:
+            html_content = file_path.read_text(encoding="utf-8")
+        except UnicodeDecodeError as exc:
+            logger.exception("HTML decoding failed | path=%s", file_path)
+            raise ValueError("The uploaded file is not valid UTF-8 text.") from exc
+
+        # HTMLParser is deliberately lenient about malformed markup (real
+        # web pages are rarely perfectly valid HTML), so there is no
+        # "corrupted HTML" failure mode the way there is for PDF/DOCX/PPTX -
+        # any UTF-8 text will produce some extracted result.
+        parser = _VisibleTextExtractor()
+        parser.feed(html_content)
+        text = parser.get_text()
+
+        logger.info(
+            "Text extraction completed | characters=%s",
+            len(text),
+        )
+
+        # HTML has no real pagination concept.
+        return text, 1
 
     def persist_metadata(
         self,

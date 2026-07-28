@@ -277,3 +277,56 @@ def test_upload_rejects_corrupted_pptx(
     )
 
     assert response.status_code == 422
+
+
+def test_upload_accepts_html_file(client: TestClient) -> None:
+    content = b"<html><body><h1>Title</h1><p>Some paragraph text.</p></body></html>"
+
+    response = client.post(
+        "/documents/upload",
+        files={"file": ("page.html", content, "text/html")},
+    )
+
+    assert response.status_code == 201
+
+    body = response.json()
+    assert body["filename"] == "page.html"
+    assert body["page_count"] == 1
+    assert body["character_count"] > 0
+    assert body["status"] == "completed"
+
+
+def test_upload_strips_script_and_style_from_html(
+    client: TestClient,
+    isolated_upload_directory: Path,
+) -> None:
+    content = (
+        b"<html><head><style>body { color: red; }</style>"
+        b"<script>alert('should not appear');</script></head>"
+        b"<body><p>Visible paragraph text.</p></body></html>"
+    )
+
+    response = client.post(
+        "/documents/upload",
+        files={"file": ("page.html", content, "text/html")},
+    )
+
+    document_id = response.json()["document_id"]
+    sidecar_path = isolated_upload_directory / f"{document_id}.json"
+    record = json.loads(sidecar_path.read_text())
+
+    assert "Visible paragraph text." in record["extracted_text"]
+    assert "should not appear" not in record["extracted_text"]
+    assert "color: red" not in record["extracted_text"]
+
+
+def test_upload_rejects_non_utf8_html_file(client: TestClient) -> None:
+    invalid_utf8 = b"\xff\xfe\x00\x01<html>not valid utf-8</html>"
+
+    response = client.post(
+        "/documents/upload",
+        files={"file": ("page.html", invalid_utf8, "text/html")},
+    )
+
+    assert response.status_code == 422
+    assert "UTF-8" in response.json()["detail"]
