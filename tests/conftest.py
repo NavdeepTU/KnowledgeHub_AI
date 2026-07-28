@@ -28,6 +28,7 @@ def valid_pdf_bytes() -> bytes:
     """A minimal, single-page, unencrypted PDF built at test time."""
     writer = PdfWriter()
     writer.add_blank_page(width=72, height=72)
+    writer.add_metadata({"/Title": "PDF Test Title", "/Author": "PDF Test Author"})
 
     buffer = io.BytesIO()
     writer.write(buffer)
@@ -56,6 +57,8 @@ def corrupted_pdf_bytes() -> bytes:
 def valid_docx_bytes() -> bytes:
     """A minimal DOCX with a couple of paragraphs, built at test time."""
     document = DocxDocument()
+    document.core_properties.title = "DOCX Test Title"
+    document.core_properties.author = "DOCX Test Author"
     document.add_paragraph("Knowledge base test document.")
     document.add_paragraph("Second paragraph.")
 
@@ -74,6 +77,8 @@ def corrupted_docx_bytes() -> bytes:
 def valid_pptx_bytes() -> bytes:
     """A minimal two-slide presentation, built at test time."""
     presentation = Presentation()
+    presentation.core_properties.title = "PPTX Test Title"
+    presentation.core_properties.author = "PPTX Test Author"
     layout = presentation.slide_layouts[1]
 
     slide_one = presentation.slides.add_slide(layout)

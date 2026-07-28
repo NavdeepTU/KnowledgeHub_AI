@@ -362,3 +362,68 @@ def test_upload_rejects_non_utf8_html_file(client: TestClient) -> None:
 
     assert response.status_code == 422
     assert "UTF-8" in response.json()["detail"]
+
+
+def test_upload_extracts_pdf_metadata(client: TestClient, valid_pdf_bytes: bytes) -> None:
+    response = client.post(
+        "/documents/upload",
+        files={"file": ("document.pdf", valid_pdf_bytes, "application/pdf")},
+    )
+
+    metadata = response.json()["metadata"]
+    assert metadata["title"] == "PDF Test Title"
+    assert metadata["author"] == "PDF Test Author"
+    # Not set in the fixture, so it should come back empty rather than a
+    # fabricated value.
+    assert metadata["created_at"] is None
+
+
+def test_upload_extracts_docx_metadata(client: TestClient, valid_docx_bytes: bytes) -> None:
+    response = client.post(
+        "/documents/upload",
+        files={
+            "file": (
+                "report.docx",
+                valid_docx_bytes,
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            )
+        },
+    )
+
+    metadata = response.json()["metadata"]
+    assert metadata["title"] == "DOCX Test Title"
+    assert metadata["author"] == "DOCX Test Author"
+    # python-docx's default template always has a creation timestamp,
+    # even for documents that never set one explicitly.
+    assert metadata["created_at"] is not None
+
+
+def test_upload_extracts_pptx_metadata(client: TestClient, valid_pptx_bytes: bytes) -> None:
+    response = client.post(
+        "/documents/upload",
+        files={
+            "file": (
+                "deck.pptx",
+                valid_pptx_bytes,
+                "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+            )
+        },
+    )
+
+    metadata = response.json()["metadata"]
+    assert metadata["title"] == "PPTX Test Title"
+    assert metadata["author"] == "PPTX Test Author"
+    assert metadata["created_at"] is not None
+
+
+def test_upload_txt_has_no_metadata(client: TestClient) -> None:
+    response = client.post(
+        "/documents/upload",
+        files={"file": ("notes.txt", b"plain text has no metadata", "text/plain")},
+    )
+
+    assert response.json()["metadata"] == {
+        "title": None,
+        "author": None,
+        "created_at": None,
+    }

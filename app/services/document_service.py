@@ -13,7 +13,7 @@ from pptx.exc import PackageNotFoundError as PptxPackageNotFoundError
 from pypdf import PdfReader
 from pypdf.errors import PdfReadError
 
-from app.schemas.document import DocumentRecord
+from app.schemas.document import DocumentMetadata, DocumentRecord
 
 
 logger = logging.getLogger(__name__)
@@ -110,6 +110,15 @@ class DocumentService:
             ".docx": self._extract_docx,
             ".pptx": self._extract_pptx,
             ".html": self._extract_html,
+        }
+        self._metadata_extractors: dict[str, Callable[[Path], DocumentMetadata]] = {
+            ".pdf": self._extract_pdf_metadata,
+            ".docx": self._extract_docx_metadata,
+            ".pptx": self._extract_pptx_metadata,
+            # TXT, Markdown, and HTML have no metadata standard to read
+            # from, so they're deliberately absent here rather than
+            # mapped to a no-op - extract_metadata treats a missing
+            # entry as "no metadata available."
         }
 
     async def save_document(
@@ -284,6 +293,62 @@ class DocumentService:
 
         # HTML has no real pagination concept.
         return text, 1
+
+    def extract_metadata(self, file_path: Path) -> DocumentMetadata:
+        """
+        Extract format-intrinsic metadata (title, author, creation date)
+        from a saved file, dispatching by its extension.
+
+        This is best-effort: unlike extract_text, a failure here doesn't
+        fail the whole upload. The file already parsed successfully once
+        (extract_text succeeded before this is called), so a metadata
+        extraction failure is treated as "no metadata available" rather
+        than a reason to reject an otherwise-good document.
+        """
+        extension = file_path.suffix.lower()
+        extractor = self._metadata_extractors.get(extension)
+
+        if extractor is None:
+            return DocumentMetadata()
+
+        try:
+            return extractor(file_path)
+        except Exception:
+            logger.exception(
+                "Metadata extraction failed, continuing without it | path=%s",
+                file_path,
+            )
+            return DocumentMetadata()
+
+    def _extract_pdf_metadata(self, file_path: Path) -> DocumentMetadata:
+        info = PdfReader(file_path).metadata
+
+        if info is None:
+            return DocumentMetadata()
+
+        return DocumentMetadata(
+            title=info.title or None,
+            author=info.author or None,
+            created_at=info.creation_date,
+        )
+
+    def _extract_docx_metadata(self, file_path: Path) -> DocumentMetadata:
+        props = DocxDocument(str(file_path)).core_properties
+
+        return DocumentMetadata(
+            title=props.title or None,
+            author=props.author or None,
+            created_at=props.created,
+        )
+
+    def _extract_pptx_metadata(self, file_path: Path) -> DocumentMetadata:
+        props = Presentation(str(file_path)).core_properties
+
+        return DocumentMetadata(
+            title=props.title or None,
+            author=props.author or None,
+            created_at=props.created,
+        )
 
     def persist_metadata(
         self,

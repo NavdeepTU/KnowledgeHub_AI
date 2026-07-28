@@ -38,8 +38,9 @@ async def upload_document(
     4. Save it locally.
     5. Extract text.
     6. Split the extracted text into overlapping chunks.
-    7. Persist extracted text, chunks, and metadata.
-    8. Return processing details.
+    7. Extract format-intrinsic metadata (title, author, creation date).
+    8. Persist extracted text, chunks, and metadata.
+    9. Return processing details.
     """
     logger.info(
         "Upload request received | filename=%s | content_type=%s",
@@ -161,6 +162,8 @@ async def upload_document(
             overlap=settings.chunk_overlap_chars,
         )
 
+        metadata = document_service.extract_metadata(saved_path)
+
         record = DocumentRecord(
             document_id=saved_path.stem,
             filename=file.filename,
@@ -168,6 +171,7 @@ async def upload_document(
             character_count=len(extracted_text),
             extracted_text=extracted_text,
             chunks=chunks,
+            metadata=metadata,
             status=IngestionStatus.completed,
         )
 
@@ -189,6 +193,7 @@ async def upload_document(
             page_count=record.page_count,
             character_count=record.character_count,
             chunk_count=len(record.chunks),
+            metadata=record.metadata,
             status=record.status,
         )
 
