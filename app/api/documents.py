@@ -7,6 +7,8 @@ from app.core.config import settings
 from app.schemas.document import DocumentRecord, DocumentUploadResponse, IngestionStatus
 from app.services.chunking_service import ChunkingService
 from app.services.document_service import SUPPORTED_FORMATS, DocumentService
+from app.services.embedding_service import EmbeddingService
+from app.services.vector_store_service import VectorStoreService
 
 
 logger = logging.getLogger(__name__)
@@ -18,6 +20,10 @@ router = APIRouter(
 
 document_service = DocumentService()
 chunking_service = ChunkingService()
+embedding_service = EmbeddingService(api_key=settings.openai_api_key)
+vector_store_service = VectorStoreService(
+    persist_directory=settings.chroma_persist_directory,
+)
 
 
 @router.post(
@@ -38,9 +44,10 @@ async def upload_document(
     4. Save it locally.
     5. Extract text.
     6. Split the extracted text into overlapping chunks.
-    7. Extract format-intrinsic metadata (title, author, creation date).
-    8. Persist extracted text, chunks, and metadata.
-    9. Return processing details.
+    7. Embed each chunk and store the vectors for retrieval.
+    8. Extract format-intrinsic metadata (title, author, creation date).
+    9. Persist extracted text, chunks, and metadata.
+    10. Return processing details.
     """
     logger.info(
         "Upload request received | filename=%s | content_type=%s",
@@ -160,6 +167,23 @@ async def upload_document(
             extracted_text,
             chunk_size=settings.chunk_size_chars,
             overlap=settings.chunk_overlap_chars,
+        )
+
+        # Unlike metadata extraction, embedding failures are not treated
+        # as best-effort: making a document searchable is the actual
+        # point of this step, so a failure here (bad API key, no
+        # billing, rate limit) should surface as a real upload failure
+        # rather than silently producing a document nothing can find.
+        embeddings = embedding_service.embed_texts(
+            [chunk.text for chunk in chunks],
+            model=settings.embedding_model,
+        )
+
+        vector_store_service.upsert_chunks(
+            document_id=saved_path.stem,
+            filename=file.filename,
+            chunks=chunks,
+            embeddings=embeddings,
         )
 
         metadata = document_service.extract_metadata(saved_path)

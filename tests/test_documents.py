@@ -3,6 +3,8 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
+from app.services.vector_store_service import VectorStoreService
+
 
 def test_health_check(client: TestClient) -> None:
     response = client.get("/health")
@@ -427,3 +429,38 @@ def test_upload_txt_has_no_metadata(client: TestClient) -> None:
         "author": None,
         "created_at": None,
     }
+
+
+def test_upload_stores_chunks_in_vector_store(
+    client: TestClient,
+    isolated_vector_services: VectorStoreService,
+) -> None:
+    content = ("word " * 1000).encode("utf-8")  # 5000 characters, multiple chunks
+
+    response = client.post(
+        "/documents/upload",
+        files={"file": ("notes.txt", content, "text/plain")},
+    )
+
+    document_id = response.json()["document_id"]
+    chunk_count = response.json()["chunk_count"]
+    assert chunk_count > 1
+
+    expected_ids = [f"{document_id}:{i}" for i in range(chunk_count)]
+    result = isolated_vector_services._collection.get(ids=expected_ids)
+
+    assert set(result["ids"]) == set(expected_ids)
+    assert all(metadata["filename"] == "notes.txt" for metadata in result["metadatas"])
+
+
+def test_upload_failure_does_not_store_chunks_in_vector_store(
+    client: TestClient,
+    encrypted_pdf_bytes: bytes,
+    isolated_vector_services: VectorStoreService,
+) -> None:
+    client.post(
+        "/documents/upload",
+        files={"file": ("document.pdf", encrypted_pdf_bytes, "application/pdf")},
+    )
+
+    assert isolated_vector_services._collection.count() == 0

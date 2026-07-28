@@ -3,6 +3,7 @@ __pycache__/
 *.py[cod]
 .env
 uploads/
+chroma_db/
 .DS_Store
 .pytest_cache/
 .idea/

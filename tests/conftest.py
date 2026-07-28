@@ -7,8 +7,12 @@ from fastapi.testclient import TestClient
 from pptx import Presentation
 from pypdf import PdfWriter
 
+import app.api.documents as documents_module
 from app.core.config import settings
 from app.main import app
+from app.services.embedding_service import EmbeddingService
+from app.services.vector_store_service import VectorStoreService
+from tests.fakes import FakeOpenAIClient
 
 
 @pytest.fixture(autouse=True)
@@ -16,6 +20,25 @@ def isolated_upload_directory(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -
     """Redirect uploads to a throwaway directory so tests never touch the real uploads/ folder."""
     monkeypatch.setattr(settings, "upload_directory", tmp_path)
     return tmp_path
+
+
+@pytest.fixture(autouse=True)
+def isolated_vector_services(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> VectorStoreService:
+    """
+    Replace the real embedding and vector-store services with local,
+    free test doubles: a fake OpenAI client (no network/cost/key) and a
+    throwaway Chroma directory (still real Chroma, since it's local and
+    free - only the paid API needs faking).
+    """
+    fake_embedding_service = EmbeddingService(client=FakeOpenAIClient())
+    monkeypatch.setattr(documents_module, "embedding_service", fake_embedding_service)
+
+    test_vector_store = VectorStoreService(persist_directory=tmp_path / "chroma_test")
+    monkeypatch.setattr(documents_module, "vector_store_service", test_vector_store)
+
+    return test_vector_store
 
 
 @pytest.fixture()
