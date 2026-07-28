@@ -171,6 +171,27 @@ validation, not something BeautifulSoup would have fixed either.
 
 ---
 
+## "You're chunking text for future embeddings — why character count instead of tokens?"
+
+*(from: Chunk by character count, not tokens, in a dedicated ChunkingService)*
+
+Because token-based sizing is only meaningful once I've actually picked
+an embedding model — token counts depend on that model's tokenizer, and
+I haven't chosen one yet. Adding a tokenizer dependency to size chunks
+for a model that doesn't exist would be the exact kind of premature
+infrastructure I've been avoiding all through this project. So chunking
+lives in its own `ChunkingService`, splitting on character count with
+configurable size and overlap, and every chunk keeps its original
+start and end offsets — so when I do add token-based sizing, or need
+citations, that migration has something solid to verify against.
+
+**Follow-up to expect:** "Isn't character count a bad proxy for tokens?"
+— Yes, roughly 4 characters per token as a rule of thumb, so a
+1000-character chunk is a rough size, not a precise one. That's an
+accepted, temporary approximation, not a design I'd defend as final.
+
+---
+
 ## How to extend this file
 
 After a session that adds an entry to `docs/DECISIONS.md`, add a matching

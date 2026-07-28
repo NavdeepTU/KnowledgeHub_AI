@@ -2,10 +2,9 @@
 
 ## Current milestone
 
-Multi-format upload support (complete). All formats on the roadmap -
-PDF, TXT, Markdown, DOCX, PPTX, and HTML - are supported through a
-shared dispatcher. Next milestone (chunking) proposed but not yet
-started - see below.
+Chunking (complete). Every document's extracted text is now split into
+overlapping, character-bounded chunks and persisted alongside it. Next
+milestone (a real database) proposed but not yet started - see below.
 
 ## Completed
 
@@ -80,6 +79,16 @@ started - see below.
   tests (success, script/style stripping verified via the sidecar,
   non-UTF-8 rejection) - 22 tests total, all passing
 - This completes every format on `docs/ROADMAP.md`'s Phase 2 list
+- Added chunking: `ChunkingService.chunk_text` splits extracted text
+  into overlapping, character-bounded chunks (`chunk_size_chars=1000`,
+  `chunk_overlap_chars=200`, both configurable via `Settings`).
+  Character-based, not token-based - no tokenizer dependency added
+  since there's no embedding model yet to make token counts meaningful.
+  Chunks (with `start_offset`/`end_offset` for future citations) are
+  persisted in the same JSON sidecar as a new `chunks` field, and
+  `chunk_count` is now in the API response. 5 direct unit tests on the
+  chunking algorithm plus 2 integration tests through the real upload
+  flow - 28 tests total, all passing
 
 ## Work in progress
 
@@ -98,17 +107,20 @@ None.
   document at a time, but there's no way to search or list across
   documents yet
 - No background processing
-- No embeddings or retrieval
-- No chunking yet - each document's full extracted text is stored as a
-  single blob
+- No embeddings or retrieval - chunks exist but nothing turns them into
+  vectors yet
+- No format-intrinsic metadata (author, title, creation date) is
+  extracted, even where the file format supports it
 - `starlette.testclient` emits a deprecation warning about `httpx` in favor
   of an `httpx2` package in the currently installed Starlette version; not
   addressed yet, tests are unaffected
 
 ## Next likely milestone
 
-Chunking: split each document's `extracted_text` into overlapping,
-size-bounded chunks before it's useful for embeddings. This is the next
-unstarted item on `docs/ROADMAP.md` Phase 2, now that format support is
-complete, and the natural prerequisite for Phase 3 (embeddings,
-retrieval).
+Metadata extraction: pull format-intrinsic metadata (author, title,
+creation date where available - e.g. via `pypdf`'s `reader.metadata` for
+PDF, `document.core_properties` for DOCX/PPTX) into the persisted
+record. This is the last unstarted item on `docs/ROADMAP.md` Phase 2,
+after which the project moves into Phase 3 (embeddings, vector database,
+retrieval) - a bigger step that will need a real model/provider decision,
+not just an implementation detail.

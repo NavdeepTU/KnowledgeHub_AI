@@ -23,6 +23,7 @@ flowchart TD
 
     subgraph Services["app/services"]
         service["document_service.py<br/>save_document / extract_text (dispatcher) / persist_metadata"]
+        chunking["chunking_service.py<br/>chunk_text"]
     end
 
     subgraph Core["app/core"]
@@ -32,9 +33,11 @@ flowchart TD
 
     documents --> schema
     documents --> service
+    documents --> chunking
     documents --> config
     documents --> logging_
     service --> logging_
+    chunking --> logging_
 ```
 
 **Why this split:**
@@ -42,9 +45,12 @@ flowchart TD
 - `api/` only translates HTTP in and out - validation of the *shape* of a
   request, calling a service, mapping results/exceptions to status codes.
   It has no PDF-parsing or filesystem logic in it.
-- `services/` holds the actual business logic (how a PDF is stored, how
-  text is extracted) so it can be tested or reused without spinning up
-  HTTP at all.
+- `services/` holds the actual business logic (how a file is stored, how
+  text is extracted, how it's chunked) so it can be tested or reused
+  without spinning up HTTP at all. Chunking lives in its own
+  `ChunkingService` rather than inside `DocumentService`, since it's a
+  distinct responsibility with its own algorithm and config, not tied to
+  any particular file format.
 - `schemas/` defines the response contract independently of both, so the
   API's public shape doesn't leak internal service types.
 - `core/` holds things every layer needs (configuration, logging) without
@@ -63,6 +69,7 @@ sequenceDiagram
     participant Router as documents.py
     participant Service as DocumentService
     participant Extractor as format extractor
+    participant Chunker as ChunkingService
 
     Client->>Router: multipart upload
     Router->>Router: look up extension in SUPPORTED_FORMATS
@@ -79,6 +86,8 @@ sequenceDiagram
         Router-->>Client: 422
     else success
         Service-->>Router: (text, page_count)
+        Router->>Chunker: chunk_text(text, chunk_size, overlap)
+        Chunker-->>Router: list[DocumentChunk]
         Router->>Service: persist_metadata(DocumentRecord, upload_directory)
         Service-->>Router: sidecar path (<document_id>.json)
         Router-->>Client: 201 DocumentUploadResponse
@@ -114,19 +123,31 @@ happens.
   paragraph text only - tables and embedded objects are not extracted.
   PPTX is the one format where `page_count` reflects a real pagination
   concept (actual slide count) rather than being hardcoded to 1.
+- **Chunking:** `ChunkingService.chunk_text` splits `extracted_text`
+  into overlapping, character-bounded chunks (sizes configurable via
+  `Settings.chunk_size_chars`/`chunk_overlap_chars`), stored in the same
+  JSON sidecar as a `chunks` field on `DocumentRecord`. Character-based,
+  not token-based - there's no embedding model yet to make token counts
+  meaningful, so no tokenizer dependency was added. Each chunk keeps its
+  `start_offset`/`end_offset` into the original text, computed for free
+  during chunking and intended for citations once retrieval exists.
 
 ## Where this goes next
 
 Per `docs/ROADMAP.md`, the next architectural additions (each will update
 this file when they land) are:
 
-1. **Chunking + embeddings** - a new service that turns stored text into
-   vector-ready chunks.
+1. **Metadata extraction** - format-intrinsic metadata (author, title,
+   creation date) pulled into the persisted record where the format
+   supports it - the last unstarted item in Phase 2.
 2. **A real database** - once something needs to query or list across
    documents rather than looking up one JSON file at a time, the sidecar
    files get replaced by a database and likely a `repositories/` layer.
-3. **Retrieval** - a vector store dependency and a query-time service.
-4. **RAG / agents** - orchestration on top of retrieval, likely LangGraph.
+3. **Embeddings** - turning chunks into vectors, likely the point where
+   chunk-level metadata (embedding model, vector) gets added to
+   `DocumentChunk`.
+4. **Retrieval** - a vector store dependency and a query-time service.
+5. **RAG / agents** - orchestration on top of retrieval, likely LangGraph.
 
 Each addition should be evaluated against the same question used to build
 this layer split: does it belong in `api`, `services`, or `core`, and does

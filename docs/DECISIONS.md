@@ -208,3 +208,41 @@ is applied. There is also no "malformed HTML" failure mode at all:
 unlike PDF/DOCX/PPTX, virtually any UTF-8 text will produce *some*
 extracted result, even if it isn't meaningfully HTML - a real limitation
 of this format's validation, not a bug.
+
+---
+
+## Chunk by character count, not tokens, in a dedicated ChunkingService
+
+**Decision:** Add a standalone `ChunkingService` (not a method on
+`DocumentService`) whose `chunk_text` splits text into overlapping
+chunks measured in characters, configurable via
+`Settings.chunk_size_chars`/`chunk_overlap_chars` (defaults 1000/200).
+
+**Alternatives considered:**
+
+- Token-based chunking using a tokenizer (e.g. `tiktoken`) so chunk
+  sizes map directly to what an embedding model or LLM actually
+  consumes.
+- Add chunking as a method on `DocumentService` instead of a new
+  service.
+
+**Why chosen:** Token-based chunking is the right long-term choice, but
+it's only meaningful once a specific embedding model is actually wired
+up - token counts vary by model/tokenizer, and there's no model chosen
+yet. Adding a tokenizer dependency now to size chunks for a model that
+doesn't exist yet would be exactly the kind of premature infrastructure
+this project avoids; switching the sizing unit later is a contained
+change inside `ChunkingService`, not a rewrite. Chunking got its own
+service rather than joining `DocumentService` because it's a genuinely
+distinct responsibility - it doesn't care what format the text came
+from, has its own configuration, and will likely grow its own
+complexity (semantic/paragraph-aware chunking) independently of
+extraction logic.
+
+**Tradeoffs:** Character-based chunk sizes are a rough proxy for what an
+embedding model will actually see - a 1000-character chunk could be
+anywhere from ~150 to ~250 tokens depending on the text and the eventual
+tokenizer, so `chunk_size_chars` will need re-tuning (or replacing
+entirely) once a real embedding model is chosen. `start_offset`/
+`end_offset` are kept on each chunk specifically to make that future
+migration easier to verify against the original text.
