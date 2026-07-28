@@ -246,3 +246,37 @@ tokenizer, so `chunk_size_chars` will need re-tuning (or replacing
 entirely) once a real embedding model is chosen. `start_offset`/
 `end_offset` are kept on each chunk specifically to make that future
 migration easier to verify against the original text.
+
+---
+
+## Extract metadata as a separate, best-effort pass rather than extending extract_text
+
+**Decision:** Add `DocumentService.extract_metadata` as an independent
+dispatch that re-parses the file for its own purposes, rather than
+changing `extract_text`'s return signature to include metadata in the
+same pass. Metadata extraction failures degrade to an empty
+`DocumentMetadata` instead of raising and failing the upload.
+
+**Alternatives considered:**
+
+- Extend `extract_text` to return `tuple[str, int, DocumentMetadata]`,
+  extracting text and metadata together in one pass per format.
+- Let metadata extraction failures propagate and fail the whole upload,
+  the same way text extraction failures do.
+
+**Why chosen:** Changing `extract_text`'s signature would touch all six
+existing, already-tested extractor methods and the router logic that
+consumes them - a large, risky change for a supplementary feature. A
+separate dispatch keeps the change isolated to new code. Making it
+best-effort follows from what "supplementary" means here: metadata is a
+nice-to-have on top of text that already extracted successfully, so a
+corrupted `/Info` dictionary or similar shouldn't turn a working upload
+into a failed one.
+
+**Tradeoffs:** Files with intrinsic metadata (PDF, DOCX, PPTX) get
+parsed twice - once for text, once for metadata - a real, measurable
+inefficiency, acceptable at current file-size limits but worth
+revisiting if this becomes a hot path. The best-effort `except
+Exception` in `extract_metadata` is the one place in the codebase that
+catches broadly rather than a specific exception type - a deliberate,
+commented exception to that general rule, not a new default.

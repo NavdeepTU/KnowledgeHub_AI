@@ -88,6 +88,8 @@ sequenceDiagram
         Service-->>Router: (text, page_count)
         Router->>Chunker: chunk_text(text, chunk_size, overlap)
         Chunker-->>Router: list[DocumentChunk]
+        Router->>Service: extract_metadata(path)
+        Service-->>Router: DocumentMetadata (best-effort, never raises)
         Router->>Service: persist_metadata(DocumentRecord, upload_directory)
         Service-->>Router: sidecar path (<document_id>.json)
         Router-->>Client: 201 DocumentUploadResponse
@@ -131,23 +133,32 @@ happens.
   meaningful, so no tokenizer dependency was added. Each chunk keeps its
   `start_offset`/`end_offset` into the original text, computed for free
   during chunking and intended for citations once retrieval exists.
+- **Metadata:** `DocumentService.extract_metadata` pulls title, author,
+  and creation date from PDF/DOCX/PPTX (`pypdf`'s `reader.metadata`,
+  `core_properties` for the Office formats); TXT/Markdown/HTML have no
+  metadata standard and get an empty `DocumentMetadata`. This is the
+  one extraction path in the codebase that's explicitly best-effort - a
+  failure here degrades to empty metadata instead of failing the
+  upload, since the file already parsed successfully once for text
+  extraction. DOCX/PPTX's `created_at` may reflect the authoring tool's
+  default template timestamp rather than a real authorship date if the
+  document never set one explicitly.
 
 ## Where this goes next
 
-Per `docs/ROADMAP.md`, the next architectural additions (each will update
-this file when they land) are:
+Per `docs/ROADMAP.md`, this closes out Phase 2 (Document Processing)
+entirely. The next architectural additions are Phase 3:
 
-1. **Metadata extraction** - format-intrinsic metadata (author, title,
-   creation date) pulled into the persisted record where the format
-   supports it - the last unstarted item in Phase 2.
-2. **A real database** - once something needs to query or list across
+1. **A real database** - once something needs to query or list across
    documents rather than looking up one JSON file at a time, the sidecar
    files get replaced by a database and likely a `repositories/` layer.
-3. **Embeddings** - turning chunks into vectors, likely the point where
+2. **Embeddings** - turning chunks into vectors, likely the point where
    chunk-level metadata (embedding model, vector) gets added to
-   `DocumentChunk`.
-4. **Retrieval** - a vector store dependency and a query-time service.
-5. **RAG / agents** - orchestration on top of retrieval, likely LangGraph.
+   `DocumentChunk`. Needs a model/provider decision first - the first
+   milestone in this project that introduces an external dependency and
+   likely cost, not just an implementation choice.
+3. **Retrieval** - a vector store dependency and a query-time service.
+4. **RAG / agents** - orchestration on top of retrieval, likely LangGraph.
 
 Each addition should be evaluated against the same question used to build
 this layer split: does it belong in `api`, `services`, or `core`, and does

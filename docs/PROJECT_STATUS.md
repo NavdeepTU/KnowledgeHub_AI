@@ -2,9 +2,10 @@
 
 ## Current milestone
 
-Chunking (complete). Every document's extracted text is now split into
-overlapping, character-bounded chunks and persisted alongside it. Next
-milestone (a real database) proposed but not yet started - see below.
+Metadata extraction (complete). This closes out every item on
+`docs/ROADMAP.md` Phase 2 - the project is ready to move into Phase 3
+(embeddings, vector database, retrieval), which needs a scoping
+decision before implementation - see below.
 
 ## Completed
 
@@ -89,6 +90,16 @@ milestone (a real database) proposed but not yet started - see below.
   `chunk_count` is now in the API response. 5 direct unit tests on the
   chunking algorithm plus 2 integration tests through the real upload
   flow - 28 tests total, all passing
+- Added metadata extraction: `DocumentService.extract_metadata` pulls
+  title, author, and creation date from PDF (`pypdf`'s `reader.metadata`)
+  and DOCX/PPTX (`core_properties`); TXT/Markdown/HTML have no metadata
+  standard and get an empty `DocumentMetadata` by design. Best-effort by
+  design - a metadata-extraction failure degrades to empty metadata
+  rather than failing the whole upload, since the file already parsed
+  successfully once for text extraction. New `metadata` field on both
+  the API response and the JSON sidecar. 4 new tests (PDF, DOCX, PPTX
+  extraction, TXT's empty case) - 32 tests total, all passing
+- This closes out every item on `docs/ROADMAP.md` Phase 2
 
 ## Work in progress
 
@@ -109,18 +120,20 @@ None.
 - No background processing
 - No embeddings or retrieval - chunks exist but nothing turns them into
   vectors yet
-- No format-intrinsic metadata (author, title, creation date) is
-  extracted, even where the file format supports it
+- DOCX/PPTX `created_at` may reflect the authoring tool's default
+  template timestamp rather than a real authorship date, if the
+  document never set one explicitly - a real quirk of those formats,
+  not a bug in extraction
 - `starlette.testclient` emits a deprecation warning about `httpx` in favor
   of an `httpx2` package in the currently installed Starlette version; not
   addressed yet, tests are unaffected
 
 ## Next likely milestone
 
-Metadata extraction: pull format-intrinsic metadata (author, title,
-creation date where available - e.g. via `pypdf`'s `reader.metadata` for
-PDF, `document.core_properties` for DOCX/PPTX) into the persisted
-record. This is the last unstarted item on `docs/ROADMAP.md` Phase 2,
-after which the project moves into Phase 3 (embeddings, vector database,
-retrieval) - a bigger step that will need a real model/provider decision,
-not just an implementation detail.
+Phase 3 (embeddings, vector database, retrieval) is next per
+`docs/ROADMAP.md`, but unlike every milestone so far, it needs a
+scoping decision before implementation: which embedding
+provider/model (e.g. a hosted API vs. a local model) and which vector
+store. This is a bigger step than the format/chunking/metadata work -
+it introduces an external dependency and likely cost, so it should be
+discussed and decided explicitly rather than picked unilaterally.

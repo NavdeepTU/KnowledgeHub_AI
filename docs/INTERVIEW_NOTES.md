@@ -192,6 +192,29 @@ accepted, temporary approximation, not a design I'd defend as final.
 
 ---
 
+## "Your metadata extraction is the only place in your codebase with a bare `except Exception` — why?"
+
+*(from: Extract metadata as a separate, best-effort pass rather than extending extract_text)*
+
+Because metadata — title, author, creation date — is genuinely
+supplementary information sitting on top of text that's already
+extracted successfully. By the time metadata extraction runs, the file
+has already parsed once for its actual content, so a corrupted `/Info`
+dictionary or similarly narrow metadata quirk shouldn't turn a working
+upload into a failed one. It's a deliberate, commented exception to
+catching specific exception types everywhere else in the codebase, not
+a habit — everything else still fails loudly on purpose.
+
+**Follow-up to expect:** "Doesn't that hide real bugs?" — It's logged
+with `logger.exception` before falling back to empty metadata, so
+nothing is silent — it just doesn't block the user. I also kept
+metadata extraction as its own pass that re-parses the file rather than
+folding it into the existing, already-tested text-extraction methods,
+so this whole change stayed isolated to new code instead of touching
+six working extractors.
+
+---
+
 ## How to extend this file
 
 After a session that adds an entry to `docs/DECISIONS.md`, add a matching
