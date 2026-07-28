@@ -6,6 +6,8 @@ from fastapi import UploadFile
 from pypdf import PdfReader
 from pypdf.errors import PdfReadError
 
+from app.schemas.document import DocumentRecord
+
 
 logger = logging.getLogger(__name__)
 
@@ -80,3 +82,23 @@ class DocumentService:
         except PdfReadError as exc:
             logger.exception("PDF parsing failed | path=%s", file_path)
             raise ValueError("The uploaded file is not a readable PDF.") from exc
+
+    def persist_metadata(
+        self,
+        record: DocumentRecord,
+        upload_directory: Path,
+    ) -> Path:
+        """
+        Persist a document's extracted text and metadata as a JSON sidecar
+        file next to its saved PDF, named after the same document ID.
+        """
+        destination = upload_directory / f"{record.document_id}.json"
+        destination.write_text(record.model_dump_json(indent=2))
+
+        logger.info(
+            "Metadata persisted | document_id=%s | path=%s",
+            record.document_id,
+            destination,
+        )
+
+        return destination

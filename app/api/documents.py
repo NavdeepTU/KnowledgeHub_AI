@@ -4,7 +4,7 @@ from pathlib import Path
 from fastapi import APIRouter, File, HTTPException, UploadFile, status
 
 from app.core.config import settings
-from app.schemas.document import DocumentUploadResponse, IngestionStatus
+from app.schemas.document import DocumentRecord, DocumentUploadResponse, IngestionStatus
 from app.services.document_service import DocumentService
 
 
@@ -138,18 +138,32 @@ async def upload_document(
             saved_path,
         )
 
-        logger.info(
-            "Upload completed successfully | document_id=%s | filename=%s",
-            saved_path.stem,
-            file.filename,
-        )
-
-        return DocumentUploadResponse(
+        record = DocumentRecord(
             document_id=saved_path.stem,
             filename=file.filename,
             page_count=page_count,
             character_count=len(extracted_text),
+            extracted_text=extracted_text,
             status=IngestionStatus.completed,
+        )
+
+        document_service.persist_metadata(
+            record=record,
+            upload_directory=settings.upload_directory,
+        )
+
+        logger.info(
+            "Upload completed successfully | document_id=%s | filename=%s",
+            record.document_id,
+            file.filename,
+        )
+
+        return DocumentUploadResponse(
+            document_id=record.document_id,
+            filename=record.filename,
+            page_count=record.page_count,
+            character_count=record.character_count,
+            status=record.status,
         )
 
     except ValueError as exc:
